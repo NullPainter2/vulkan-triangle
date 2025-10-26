@@ -37,6 +37,10 @@ namespace VK
     vk_fun(vkEnumerateDeviceExtensionProperties);
     vk_fun(vkCreateDebugUtilsMessengerEXT);
     vk_fun(vkGetPhysicalDeviceSurfaceSupportKHR);
+    vk_fun(vkCreateSwapchainKHR);
+    vk_fun(vkGetPhysicalDeviceSurfaceCapabilitiesKHR);
+    vk_fun(vkGetPhysicalDeviceSurfaceFormatsKHR);
+    vk_fun(vkGetPhysicalDeviceSurfacePresentModesKHR);
 
     void * _LoadProcedure(char *dllName, char *procName)
     {
@@ -146,6 +150,56 @@ namespace VK
         
     }
 
+    void _CreateSwapChain(VkDevice device, VkSurfaceKHR surface, VkPhysicalDevice physicalDevice)
+    {
+        VkSwapchainKHR swapChain;
+        VkSwapchainCreateInfoKHR swapInfo = {};
+        swapInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        swapInfo.surface = surface;
+        // swapInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        
+        uint32_t formatsCount = 0;
+        VkSurfaceFormatKHR * formats = NULL;
+        assert(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice,surface,&formatsCount,NULL)==VK_SUCCESS);
+        formats = (VkSurfaceFormatKHR*) calloc(formatsCount,sizeof(formats[0]));
+        assert(formats);
+        assert(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice,surface,&formatsCount,formats)==VK_SUCCESS);
+        printf("[INFO] format count %d\n",formatsCount);
+        int bestFormatIndex = -1;
+        for(int i=0;i<formatsCount;i++)
+        {
+            if(formats[i].colorSpace == VK_COLORSPACE_SRGB_NONLINEAR_KHR && formats[i].format == VK_FORMAT_B8G8R8A8_SRGB) //  VK_FORMAT_R8G8B8_SRGB ?
+            {
+                // TODO: print those
+                bestFormatIndex = i;
+                break;
+            }
+        }
+        assert(bestFormatIndex >= 0);
+
+        VkPresentModeKHR presentMode;
+        VkPresentModeKHR * presents;
+        uint32_t presentsCount;
+        assert(vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice,surface,&presentsCount,NULL)==VK_SUCCESS);
+        printf("[INFO] present modes count %d\n",presentsCount);
+        assert(presentsCount > 0);
+        presents = (VkPresentModeKHR*) calloc(presentsCount, sizeof(presents[0]));
+        assert(presents);
+        assert(vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice,surface,&presentsCount,presents)==VK_SUCCESS);
+
+        VkSurfaceCapabilitiesKHR caps = {};
+        assert(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface,&caps) == VK_SUCCESS);
+        swapInfo.minImageCount = caps.minImageCount;
+        swapInfo.imageFormat = formats[bestFormatIndex].format; // VK_FORMAT_B8G8R8A8_SRGB
+        swapInfo.imageColorSpace = formats[bestFormatIndex].colorSpace;
+        swapInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        swapInfo.preTransform = caps.currentTransform;
+        swapInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        swapInfo.presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; // TODO: make sure it is in `presents` array
+        VkResult result = vkCreateSwapchainKHR(device,&swapInfo,NULL,&swapChain);
+        assert(result==VK_SUCCESS);
+    }
+
     void Init()
     {
         // get loader https://docs.vulkan.org/guide/latest/loader.html
@@ -161,6 +215,10 @@ namespace VK
         vkCreateDevice = (PFN_vkCreateDevice) _LoadProcedure( "vulkan-1.dll", "vkCreateDevice" );
         vkEnumerateDeviceExtensionProperties = (PFN_vkEnumerateDeviceExtensionProperties) _LoadProcedure( "vulkan-1.dll", "vkEnumerateDeviceExtensionProperties" );
         vkGetPhysicalDeviceSurfaceSupportKHR = (PFN_vkGetPhysicalDeviceSurfaceSupportKHR) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceSurfaceSupportKHR" );
+        vkCreateSwapchainKHR = (PFN_vkCreateSwapchainKHR) _LoadProcedure( "vulkan-1.dll", "vkCreateSwapchainKHR" );
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR = (PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceSurfaceCapabilitiesKHR" );
+        vkGetPhysicalDeviceSurfaceFormatsKHR = (PFN_vkGetPhysicalDeviceSurfaceFormatsKHR) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceSurfaceFormatsKHR" );
+        vkGetPhysicalDeviceSurfacePresentModesKHR = (PFN_vkGetPhysicalDeviceSurfacePresentModesKHR) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceSurfacePresentModesKHR" );
 
         // https://docs.vulkan.org/tutorial/latest/01_Overview.html
 
@@ -180,6 +238,8 @@ namespace VK
         VkDevice device = _CreateLogicalDevice(physicalDevice, surface, &graphicQueIndex, &presentQueIndex);
 
         _CreatePresentationQue(physicalDevice,graphicQueIndex,surface);
+
+        _CreateSwapChain(device,surface,physicalDevice);
     }
     void CompileShader(char *code)
     {
