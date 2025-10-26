@@ -6,9 +6,10 @@
     set CL_IS_DEFINED=1
 )
 
+@rem --target-spv=spv1.6
 pushd assets
-C:\VulkanSDK\1.3.268.0\bin\glslc.exe shader.vert --target-spv=spv1.6 -o ..\exe\vert.spv
-C:\VulkanSDK\1.3.268.0\bin\glslc.exe shader.frag --target-spv=spv1.6 -o ..\exe\frag.spv
+C:\VulkanSDK\1.3.268.0\bin\glslc.exe shader.vert -o ..\exe\vert.spv
+C:\VulkanSDK\1.3.268.0\bin\glslc.exe shader.frag -o ..\exe\frag.spv
 popd
 
 

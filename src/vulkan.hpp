@@ -239,21 +239,21 @@ namespace VK
         VkShaderModuleCreateInfo moduleInfo = {};
         moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
         
+        VkShaderModule fragModule;
         {
             File::file_content fragShader = File::Read("frag.spv");
             assert(fragShader.isOK);
             moduleInfo.codeSize = fragShader.count;
             moduleInfo.pCode = (uint32_t*) fragShader.bytes;        
-            VkShaderModule module;
-            assert(vkCreateShaderModule(device,&moduleInfo,NULL,&module)==VK_SUCCESS);
+            assert(vkCreateShaderModule(device,&moduleInfo,NULL,&fragModule)==VK_SUCCESS);
         }
 
+        VkShaderModule vertModule;
         {
-            File::file_content fragShader = File::Read("vert.spv");
-            moduleInfo.codeSize = fragShader.count;
-            moduleInfo.pCode = (uint32_t*) fragShader.bytes;        
-            VkShaderModule module;
-            assert(vkCreateShaderModule(device,&moduleInfo,NULL,&module)==VK_SUCCESS);
+            File::file_content vertShader = File::Read("vert.spv");
+            moduleInfo.codeSize = vertShader.count;
+            moduleInfo.pCode = (uint32_t*) vertShader.bytes;        
+            assert(vkCreateShaderModule(device,&moduleInfo,NULL,&vertModule)==VK_SUCCESS);
         }
     }
     void CompileShader(char *code)
