@@ -9,6 +9,10 @@
 
 namespace VK
 {
+    VkDevice _CreateLogicalDevice(VkPhysicalDevice physicalDevice);
+    VkPhysicalDevice _ChoosePhysicalDevice(VkInstance instance);
+    VkInstance _CreateInstance();
+
     HWND window = NULL;
 
     //#define PFN_vkVoidFunction void*
@@ -90,6 +94,26 @@ namespace VK
         }
     }
 
+    void _CreateWindowSurface(VkInstance instance)
+    {
+        // https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/01_Presentation/00_Window_surface.html
+
+        WNDCLASSA windowClass = {};
+        windowClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+        windowClass.lpszClassName = "my-window-class";
+        windowClass.lpfnWndProc = _OnWindowMessage;
+        windowClass.hInstance = GetModuleHandle( nullptr );
+        assert(RegisterClassA(&windowClass));
+        window = CreateWindowExA(0,windowClass.lpszClassName,"Vulkan Triangle!",WS_TILEDWINDOW | WS_VISIBLE,0,0,800,600,NULL,NULL,NULL,NULL);
+        assert(window);
+        VkWin32SurfaceCreateInfoKHR createInfo32 = {};
+        createInfo32.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+        createInfo32.hwnd = window;
+        createInfo32.hinstance = windowClass.hInstance;
+        VkSurfaceKHR surface = NULL;
+        vkCreateWin32SurfaceKHR(instance, &createInfo32, NULL, &surface);        
+    }
+
     void Init()
     {
         // get loader https://docs.vulkan.org/guide/latest/loader.html
@@ -106,6 +130,40 @@ namespace VK
         vkEnumerateDeviceExtensionProperties = (PFN_vkEnumerateDeviceExtensionProperties) _LoadProcedure( "vulkan-1.dll", "vkEnumerateDeviceExtensionProperties" );
 
         // https://docs.vulkan.org/tutorial/latest/01_Overview.html
+
+
+
+        VkInstance instance = _CreateInstance();
+        _CreateWindowSurface(instance); // Khronos: The window surface needs to be created right after the instance creation, because it can actually influence the physical device selection. 
+        VkPhysicalDevice physicalDevice = _ChoosePhysicalDevice( instance );
+        VkDevice device = _CreateLogicalDevice(physicalDevice);
+        
+
+    }
+    void CompileShader(char *code)
+    {
+
+    }
+    void BindShader()
+    {
+
+    }
+    void DrawCall()
+    {
+
+    }
+    void Display()
+    {
+
+    }
+
+    void Shutdown()
+    {
+        CloseWindow(window);
+    }
+
+    VkInstance _CreateInstance()
+    {
 
         uint32_t extensionsCount = 0;
         char ** extensionNames = NULL;
@@ -129,8 +187,7 @@ namespace VK
                 strcpy(extensionNames[i], extensions[i].extensionName);
             }
         }
-
-
+        
         /* throws exception !!!
 
         uint32_t layersCount = 0;
@@ -175,9 +232,9 @@ namespace VK
         appInfo.apiVersion = VK_API_VERSION_1_0;
 
         // create instance
-        VkResult result = VK_TIMEOUT;
+        VkResult result;
         VkInstance instance;
-
+ 
         VkInstanceCreateInfo createInfo = {};        
         createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO; // https://docs.vulkan.org/refpages/latest/refpages/source/VkStructureType.html
         createInfo.pNext = &debug1;
@@ -189,8 +246,13 @@ namespace VK
         //createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
         createInfo.pApplicationInfo = &appInfo; // (optional)
         result = vkCreateInstance(&createInfo,VK_NULL_HANDLE,&instance);
-        assert(result == VK_SUCCESS);
+        assert(result == VK_SUCCESS);        
 
+        return instance;
+    }
+
+    VkPhysicalDevice _ChoosePhysicalDevice(VkInstance instance)
+    {
         // https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/00_Setup/03_Physical_devices_and_queue_families.html
 
         // choose device from physical onese - some enumeration before
@@ -202,42 +264,24 @@ namespace VK
         assert(vkEnumeratePhysicalDevices(instance,&devicesCount,devices) == VK_SUCCESS);
         assert(devices);
 
-        WNDCLASSA windowClass = {};
-        windowClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
-        windowClass.lpszClassName = "my-window-class";
-        windowClass.lpfnWndProc = _OnWindowMessage;
-        windowClass.hInstance = GetModuleHandle( nullptr );
-        assert(RegisterClassA(&windowClass));
-        window = CreateWindowExA(0,windowClass.lpszClassName,"Vulkan Triangle!",WS_TILEDWINDOW | WS_VISIBLE,0,0,800,600,NULL,NULL,NULL,NULL);
-        assert(window);
-
-        VkWin32SurfaceCreateInfoKHR createInfo32 = {};
-        createInfo32.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-        createInfo32.hwnd = window;
-        createInfo32.hinstance = windowClass.hInstance;
-
-        VkSurfaceKHR surface = NULL;
-        vkCreateWin32SurfaceKHR(instance, &createInfo32, NULL, &surface);
-
         VkPhysicalDeviceProperties deviceProperties = {};
-        VkPhysicalDeviceFeatures deviceFeatures = {};
         vkGetPhysicalDeviceProperties(devices[0], &deviceProperties);
-        vkGetPhysicalDeviceFeatures(devices[0], &deviceFeatures);
         assert(deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU);
-        // assert(deviceFeatures.deviceType === VK_PHYSICAL_DEVICE_FEEATURE_);
-        //printf("")
-        //deviceProperties.vendorID
 
-        // FIXME: create logical device - what I will be using ???
-
+        return devices[0];
+    }
+    
+    VkDevice _CreateLogicalDevice(VkPhysicalDevice physicalDevice)
+    {
         // https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/00_Setup/03_Physical_devices_and_queue_families.html#_queue_families
+
         uint32_t queCount = 0;
         VkQueueFamilyProperties * queProps = NULL;
-        vkGetPhysicalDeviceQueueFamilyProperties(devices[0], &queCount, NULL);
+        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queCount, NULL);
         assert(queCount > 0);
         queProps = (VkQueueFamilyProperties*) calloc(queCount, sizeof(queProps[0]));
         assert(queProps);
-        vkGetPhysicalDeviceQueueFamilyProperties(devices[0], &queCount, queProps);
+        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queCount, queProps);
         
         int graphicQueIndex = -1;
         for(int i=0;i<queCount;i++)
@@ -248,7 +292,6 @@ namespace VK
                 break;
             }
         }
-
         
         VkDeviceQueueCreateInfo queCreateInfo = {};
         queCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -256,16 +299,15 @@ namespace VK
         queCreateInfo.queueFamilyIndex = graphicQueIndex;
         VkDevice device;
 
-
         uint32_t deviceExtensionsCount = 0;
         char ** deviceExtensionNames = NULL;
         {
             VkExtensionProperties* extensions = NULL;
             {
-                assert(vkEnumerateDeviceExtensionProperties(devices[0],NULL,&deviceExtensionsCount,NULL)==VK_SUCCESS);
+                assert(vkEnumerateDeviceExtensionProperties(physicalDevice,NULL,&deviceExtensionsCount,NULL)==VK_SUCCESS);
                 printf("[VK] %d physical device extensions:\n", deviceExtensionsCount);
                 extensions = (VkExtensionProperties*) malloc(sizeof(VkExtensionProperties) * deviceExtensionsCount);
-                assert(vkEnumerateDeviceExtensionProperties(devices[0],NULL,&deviceExtensionsCount,extensions)==VK_SUCCESS);
+                assert(vkEnumerateDeviceExtensionProperties(physicalDevice,NULL,&deviceExtensionsCount,extensions)==VK_SUCCESS);
                 for(int i=0;i<deviceExtensionsCount;i++)
                 {
                     printf("- '%s' @%d\n",extensions[i].extensionName, extensions[i].specVersion);
@@ -281,6 +323,8 @@ namespace VK
             }
         }
 
+        VkPhysicalDeviceFeatures deviceFeatures = {};
+        vkGetPhysicalDeviceFeatures(physicalDevice, &deviceFeatures);
 
         VkDeviceCreateInfo deviceCreateInfo = {};
         deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -289,29 +333,9 @@ namespace VK
         deviceCreateInfo.enabledExtensionCount = deviceExtensionsCount;
         deviceCreateInfo.queueCreateInfoCount = 1;
         deviceCreateInfo.pQueueCreateInfos = &queCreateInfo;        
-        result = vkCreateDevice(devices[0],&deviceCreateInfo,NULL,&device);
+        VkResult result = vkCreateDevice(physicalDevice,&deviceCreateInfo,NULL,&device);
         assert( result == VK_SUCCESS );
-
-    }
-    void CompileShader(char *code)
-    {
-
-    }
-    void BindShader()
-    {
-
-    }
-    void DrawCall()
-    {
-
-    }
-    void Display()
-    {
-
+        return device;
     }
 
-    void Shutdown()
-    {
-        CloseWindow(window);
-    }
 }
