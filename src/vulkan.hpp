@@ -9,7 +9,7 @@
 
 namespace VK
 {
-    VkDevice _CreateLogicalDevice(VkPhysicalDevice physicalDevice);
+    VkDevice _CreateLogicalDevice(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, int * graphicQueIndex, int * presentQueIndex);
     VkPhysicalDevice _ChoosePhysicalDevice(VkInstance instance);
     VkInstance _CreateInstance();
 
@@ -36,6 +36,7 @@ namespace VK
     vk_fun(vkCreateDevice);
     vk_fun(vkEnumerateDeviceExtensionProperties);
     vk_fun(vkCreateDebugUtilsMessengerEXT);
+    vk_fun(vkGetPhysicalDeviceSurfaceSupportKHR);
 
     void * _LoadProcedure(char *dllName, char *procName)
     {
@@ -95,7 +96,7 @@ namespace VK
         }
     }
 
-    void _CreateWindowSurface(VkInstance instance)
+    VkSurfaceKHR _CreateWindowSurface(VkInstance instance)
     {
         // https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/01_Presentation/00_Window_surface.html
 
@@ -112,7 +113,8 @@ namespace VK
         createInfo32.hwnd = window;
         createInfo32.hinstance = windowClass.hInstance;
         VkSurfaceKHR surface = NULL;
-        vkCreateWin32SurfaceKHR(instance, &createInfo32, NULL, &surface);        
+        assert(vkCreateWin32SurfaceKHR(instance, &createInfo32, NULL, &surface) == VK_SUCCESS);
+        return surface;
     }
 
     void _InstallDebugCallbacks(VkInstance instance)
@@ -137,6 +139,13 @@ namespace VK
         assert(vkCreateDebugUtilsMessengerEXT(instance,&debug1,NULL,&debugHandle) == VK_SUCCESS);
     }
 
+    void _CreatePresentationQue(VkPhysicalDevice physicalDevice, uint32_t graphicFamilyIndex, VkSurfaceKHR surface)
+    {
+        VkBool32 supported;
+        // VkSurfaceKHR surface;
+        
+    }
+
     void Init()
     {
         // get loader https://docs.vulkan.org/guide/latest/loader.html
@@ -151,18 +160,26 @@ namespace VK
         vkGetPhysicalDeviceFeatures = (PFN_vkGetPhysicalDeviceFeatures) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceFeatures" );
         vkCreateDevice = (PFN_vkCreateDevice) _LoadProcedure( "vulkan-1.dll", "vkCreateDevice" );
         vkEnumerateDeviceExtensionProperties = (PFN_vkEnumerateDeviceExtensionProperties) _LoadProcedure( "vulkan-1.dll", "vkEnumerateDeviceExtensionProperties" );
+        vkGetPhysicalDeviceSurfaceSupportKHR = (PFN_vkGetPhysicalDeviceSurfaceSupportKHR) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceSurfaceSupportKHR" );
 
         // https://docs.vulkan.org/tutorial/latest/01_Overview.html
 
 
+        int graphicQueIndex = -1;
+        int presentQueIndex = -1;
+
         VkInstance instance = _CreateInstance();
-        _CreateWindowSurface(instance); // Khronos: The window surface needs to be created right after the instance creation, because it can actually influence the physical device selection. 
+
+        VkSurfaceKHR surface = _CreateWindowSurface(instance); // Khronos: The window surface needs to be created right after the instance creation, because it can actually influence the physical device selection. 
 
         vkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance,"vkCreateDebugUtilsMessengerEXT");
         _InstallDebugCallbacks(instance);
 
         VkPhysicalDevice physicalDevice = _ChoosePhysicalDevice( instance );
-        VkDevice device = _CreateLogicalDevice(physicalDevice);
+
+        VkDevice device = _CreateLogicalDevice(physicalDevice, surface, &graphicQueIndex, &presentQueIndex);
+
+        _CreatePresentationQue(physicalDevice,graphicQueIndex,surface);
     }
     void CompileShader(char *code)
     {
@@ -295,7 +312,7 @@ namespace VK
         return devices[0];
     }
     
-    VkDevice _CreateLogicalDevice(VkPhysicalDevice physicalDevice)
+    VkDevice _CreateLogicalDevice(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, int * graphicQueIndex, int * presentQueIndex)
     {
         // https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/00_Setup/03_Physical_devices_and_queue_families.html#_queue_families
 
@@ -306,21 +323,28 @@ namespace VK
         queProps = (VkQueueFamilyProperties*) calloc(queCount, sizeof(queProps[0]));
         assert(queProps);
         vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queCount, queProps);
-        
-        int graphicQueIndex = -1;
+        //
         for(int i=0;i<queCount;i++)
         {
+            VkBool32 supported;
+            if(vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice,i,surface,&supported))
+            {
+                *presentQueIndex = i;
+            }
             if(queProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
             {
-                graphicQueIndex = i;
-                break;
+                *graphicQueIndex = i;
+                // break;
             }
         }
+
+        assert(graphicQueIndex >= 0);
+        assert(presentQueIndex >= 0);
         
         VkDeviceQueueCreateInfo queCreateInfo = {};
         queCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
         queCreateInfo.queueCount = 1;
-        queCreateInfo.queueFamilyIndex = graphicQueIndex;
+        queCreateInfo.queueFamilyIndex = *graphicQueIndex;
         VkDevice device;
 
         uint32_t deviceExtensionsCount = 0;
@@ -359,6 +383,7 @@ namespace VK
         deviceCreateInfo.pQueueCreateInfos = &queCreateInfo;        
         VkResult result = vkCreateDevice(physicalDevice,&deviceCreateInfo,NULL,&device);
         assert( result == VK_SUCCESS );
+
         return device;
     }
 
