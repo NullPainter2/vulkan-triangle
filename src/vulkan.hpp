@@ -10,7 +10,7 @@
 namespace VK
 {
     HWND window = NULL;
-    
+
     //#define PFN_vkVoidFunction void*
 
     //#define VK_DEFINE_HANDLE(object) typedef struct object##_T* object;
@@ -26,6 +26,11 @@ namespace VK
     vk_fun(vkEnumerateInstanceExtensionProperties);
     vk_fun(vkEnumerateInstanceLayerProperties);
     vk_fun(vkEnumeratePhysicalDevices);
+    vk_fun(vkGetPhysicalDeviceProperties);
+    vk_fun(vkGetPhysicalDeviceFeatures);
+    vk_fun(vkGetPhysicalDeviceQueueFamilyProperties);
+    vk_fun(vkCreateDevice);
+    vk_fun(vkEnumerateDeviceExtensionProperties);
 
     void * _LoadProcedure(char *dllName, char *procName)
     {
@@ -94,6 +99,11 @@ namespace VK
         vkEnumerateInstanceExtensionProperties = (PFN_vkEnumerateInstanceExtensionProperties) _LoadProcedure( "vulkan-1.dll", "vkEnumerateInstanceExtensionProperties" );
         vkEnumerateInstanceLayerProperties = (PFN_vkEnumerateInstanceLayerProperties) _LoadProcedure( "vulkan-1.dll", "vkEnumerateInstanceLayerProperties" );
         vkEnumeratePhysicalDevices = (PFN_vkEnumeratePhysicalDevices) _LoadProcedure( "vulkan-1.dll", "vkEnumeratePhysicalDevices" );
+        vkGetPhysicalDeviceProperties = (PFN_vkGetPhysicalDeviceProperties) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceProperties" );
+        vkGetPhysicalDeviceQueueFamilyProperties = (PFN_vkGetPhysicalDeviceQueueFamilyProperties) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceQueueFamilyProperties" );
+        vkGetPhysicalDeviceFeatures = (PFN_vkGetPhysicalDeviceFeatures) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceFeatures" );
+        vkCreateDevice = (PFN_vkCreateDevice) _LoadProcedure( "vulkan-1.dll", "vkCreateDevice" );
+        vkEnumerateDeviceExtensionProperties = (PFN_vkEnumerateDeviceExtensionProperties) _LoadProcedure( "vulkan-1.dll", "vkEnumerateDeviceExtensionProperties" );
 
         // https://docs.vulkan.org/tutorial/latest/01_Overview.html
 
@@ -188,7 +198,8 @@ namespace VK
         uint32_t devicesCount = 0; 
         assert(vkEnumeratePhysicalDevices(instance,&devicesCount,NULL) == VK_SUCCESS);
         assert(devicesCount >= 1);
-        devices = (VkPhysicalDevice*) malloc(devicesCount * sizeof(devices[0]));
+        devices = (VkPhysicalDevice*) calloc(devicesCount, sizeof(devices[0]));
+        assert(vkEnumeratePhysicalDevices(instance,&devicesCount,devices) == VK_SUCCESS);
         assert(devices);
 
         WNDCLASSA windowClass = {};
@@ -208,10 +219,78 @@ namespace VK
         VkSurfaceKHR surface = NULL;
         vkCreateWin32SurfaceKHR(instance, &createInfo32, NULL, &surface);
 
-        //vkGetPhysicalDeviceProperties(physical_device, &properties)
+        VkPhysicalDeviceProperties deviceProperties = {};
+        VkPhysicalDeviceFeatures deviceFeatures = {};
+        vkGetPhysicalDeviceProperties(devices[0], &deviceProperties);
+        vkGetPhysicalDeviceFeatures(devices[0], &deviceFeatures);
+        assert(deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU);
+        // assert(deviceFeatures.deviceType === VK_PHYSICAL_DEVICE_FEEATURE_);
+        //printf("")
+        //deviceProperties.vendorID
 
-        // create logical device - what I will be using
-        // VkDevice 
+        // FIXME: create logical device - what I will be using ???
+
+        // https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/00_Setup/03_Physical_devices_and_queue_families.html#_queue_families
+        uint32_t queCount = 0;
+        VkQueueFamilyProperties * queProps = NULL;
+        vkGetPhysicalDeviceQueueFamilyProperties(devices[0], &queCount, NULL);
+        assert(queCount > 0);
+        queProps = (VkQueueFamilyProperties*) calloc(queCount, sizeof(queProps[0]));
+        assert(queProps);
+        vkGetPhysicalDeviceQueueFamilyProperties(devices[0], &queCount, queProps);
+        
+        int graphicQueIndex = -1;
+        for(int i=0;i<queCount;i++)
+        {
+            if(queProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            {
+                graphicQueIndex = i;
+                break;
+            }
+        }
+
+        
+        VkDeviceQueueCreateInfo queCreateInfo = {};
+        queCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queCreateInfo.queueCount = 1;
+        queCreateInfo.queueFamilyIndex = graphicQueIndex;
+        VkDevice device;
+
+
+        uint32_t deviceExtensionsCount = 0;
+        char ** deviceExtensionNames = NULL;
+        {
+            VkExtensionProperties* extensions = NULL;
+            {
+                assert(vkEnumerateDeviceExtensionProperties(devices[0],NULL,&deviceExtensionsCount,NULL)==VK_SUCCESS);
+                printf("[VK] %d physical device extensions:\n", deviceExtensionsCount);
+                extensions = (VkExtensionProperties*) malloc(sizeof(VkExtensionProperties) * deviceExtensionsCount);
+                assert(vkEnumerateDeviceExtensionProperties(devices[0],NULL,&deviceExtensionsCount,extensions)==VK_SUCCESS);
+                for(int i=0;i<deviceExtensionsCount;i++)
+                {
+                    printf("- '%s' @%d\n",extensions[i].extensionName, extensions[i].specVersion);
+                }
+            }
+            assert(extensions);
+            deviceExtensionNames = (char**) malloc(sizeof(char*) * deviceExtensionsCount);
+            for(int i=0;i<deviceExtensionsCount;i++)
+            {
+                printf("- extension [%s]\n", extensions[i].extensionName);
+                deviceExtensionNames[i] = (char*) malloc(strlen(extensions[i].extensionName)+1);
+                strcpy(deviceExtensionNames[i], extensions[i].extensionName);
+            }
+        }
+
+
+        VkDeviceCreateInfo deviceCreateInfo = {};
+        deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
+        deviceCreateInfo.ppEnabledExtensionNames = deviceExtensionNames;
+        deviceCreateInfo.enabledExtensionCount = deviceExtensionsCount;
+        deviceCreateInfo.queueCreateInfoCount = 1;
+        deviceCreateInfo.pQueueCreateInfos = &queCreateInfo;        
+        result = vkCreateDevice(devices[0],&deviceCreateInfo,NULL,&device);
+        assert( result == VK_SUCCESS );
 
     }
     void CompileShader(char *code)
