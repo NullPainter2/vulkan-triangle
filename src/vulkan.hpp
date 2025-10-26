@@ -35,6 +35,7 @@ namespace VK
     vk_fun(vkGetPhysicalDeviceQueueFamilyProperties);
     vk_fun(vkCreateDevice);
     vk_fun(vkEnumerateDeviceExtensionProperties);
+    vk_fun(vkCreateDebugUtilsMessengerEXT);
 
     void * _LoadProcedure(char *dllName, char *procName)
     {
@@ -114,6 +115,28 @@ namespace VK
         vkCreateWin32SurfaceKHR(instance, &createInfo32, NULL, &surface);        
     }
 
+    void _InstallDebugCallbacks(VkInstance instance)
+    {
+        VkDebugUtilsMessengerCreateInfoEXT debug1 = {};
+        debug1.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        debug1.messageSeverity = (
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
+            //VK_DEBUG_UTILS_MESSAGE_SEVERITY_FLAG_BITS_MAX_ENUM_EXT |
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+        );
+        debug1.messageType = (
+            VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+            VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT 
+            // VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT
+        );
+        debug1.pfnUserCallback = OnDebugUtilsMessanger;
+
+        VkDebugUtilsMessengerEXT debugHandle;
+        assert(vkCreateDebugUtilsMessengerEXT(instance,&debug1,NULL,&debugHandle) == VK_SUCCESS);
+    }
+
     void Init()
     {
         // get loader https://docs.vulkan.org/guide/latest/loader.html
@@ -132,13 +155,14 @@ namespace VK
         // https://docs.vulkan.org/tutorial/latest/01_Overview.html
 
 
-
         VkInstance instance = _CreateInstance();
         _CreateWindowSurface(instance); // Khronos: The window surface needs to be created right after the instance creation, because it can actually influence the physical device selection. 
+
+        vkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance,"vkCreateDebugUtilsMessengerEXT");
+        _InstallDebugCallbacks(instance);
+
         VkPhysicalDevice physicalDevice = _ChoosePhysicalDevice( instance );
         VkDevice device = _CreateLogicalDevice(physicalDevice);
-        
-
     }
     void CompileShader(char *code)
     {
