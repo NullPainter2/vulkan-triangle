@@ -13,7 +13,7 @@ namespace VK
 
     void * _LoadProcedure(char *dllName, char *procName)
     {
-        auto dll = GetModuleHandleA(dllName);
+        auto dll = LoadLibraryA(dllName);
         assert(dll);
         void * result = GetProcAddress(dll,procName);
         assert(result);
@@ -22,6 +22,7 @@ namespace VK
 
     void Init()
     {
+        // get loader https://docs.vulkan.org/guide/latest/loader.html
         vkGetInstanceProcAddr = (vkGetInstanceProcAddr_t) _LoadProcedure( "vulkan-1.dll", "vkGetInstanceProcAddr" );        
     }
     void CompileShader(char *code)
@@ -38,6 +39,6 @@ namespace VK
     }
     void Display()
     {
-        
+
     }
 }

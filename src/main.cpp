@@ -8,9 +8,15 @@
 #include "vulkan.hpp"
 
 
+
 void DrawTriangle()
 {
-
+    // char * vertexShader = "";
+    char * pixelShader = "out vec3 color; main(){ color = vec3(1.,0,1.); }";
+    VK::CompileShader(pixelShader);
+    VK::BindShader();
+    VK::DrawCall();
+    VK::Display();
 }
 
 void WaitForExit()
