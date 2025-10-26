@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <memory.h>
 #include <string.h>
+#include "File.hpp"
 
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
@@ -14,14 +15,6 @@ namespace VK
     VkInstance _CreateInstance();
 
     HWND window = NULL;
-
-    //#define PFN_vkVoidFunction void*
-
-    //#define VK_DEFINE_HANDLE(object) typedef struct object##_T* object;
-    //VK_DEFINE_HANDLE(VkInstance)
-    
-    //#define vk_fun(ret, name,args) typedef ret (*name##_t) args; name##_t name;
-    //#include "vulkan_functions.template"
 
     #define vk_fun(name) PFN_##name name;
     vk_fun(vkGetInstanceProcAddr);
@@ -41,6 +34,7 @@ namespace VK
     vk_fun(vkGetPhysicalDeviceSurfaceCapabilitiesKHR);
     vk_fun(vkGetPhysicalDeviceSurfaceFormatsKHR);
     vk_fun(vkGetPhysicalDeviceSurfacePresentModesKHR);
+    vk_fun(vkCreateShaderModule);
 
     void * _LoadProcedure(char *dllName, char *procName)
     {
@@ -145,9 +139,6 @@ namespace VK
 
     void _CreatePresentationQue(VkPhysicalDevice physicalDevice, uint32_t graphicFamilyIndex, VkSurfaceKHR surface)
     {
-        VkBool32 supported;
-        // VkSurfaceKHR surface;
-        
     }
 
     void _CreateSwapChain(VkDevice device, VkSurfaceKHR surface, VkPhysicalDevice physicalDevice)
@@ -219,6 +210,7 @@ namespace VK
         vkGetPhysicalDeviceSurfaceCapabilitiesKHR = (PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceSurfaceCapabilitiesKHR" );
         vkGetPhysicalDeviceSurfaceFormatsKHR = (PFN_vkGetPhysicalDeviceSurfaceFormatsKHR) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceSurfaceFormatsKHR" );
         vkGetPhysicalDeviceSurfacePresentModesKHR = (PFN_vkGetPhysicalDeviceSurfacePresentModesKHR) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceSurfacePresentModesKHR" );
+        vkCreateShaderModule = (PFN_vkCreateShaderModule) _LoadProcedure( "vulkan-1.dll", "vkCreateShaderModule" );
 
         // https://docs.vulkan.org/tutorial/latest/01_Overview.html
 
@@ -240,6 +232,29 @@ namespace VK
         _CreatePresentationQue(physicalDevice,graphicQueIndex,surface);
 
         _CreateSwapChain(device,surface,physicalDevice);
+
+        
+        // https://vulkan-tutorial.com/Drawing_a_triangle/Graphics_pipeline_basics/Shader_modules
+
+        VkShaderModuleCreateInfo moduleInfo = {};
+        moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+        
+        {
+            File::file_content fragShader = File::Read("frag.spv");
+            assert(fragShader.isOK);
+            moduleInfo.codeSize = fragShader.count;
+            moduleInfo.pCode = (uint32_t*) fragShader.bytes;        
+            VkShaderModule module;
+            assert(vkCreateShaderModule(device,&moduleInfo,NULL,&module)==VK_SUCCESS);
+        }
+
+        {
+            File::file_content fragShader = File::Read("vert.spv");
+            moduleInfo.codeSize = fragShader.count;
+            moduleInfo.pCode = (uint32_t*) fragShader.bytes;        
+            VkShaderModule module;
+            assert(vkCreateShaderModule(device,&moduleInfo,NULL,&module)==VK_SUCCESS);
+        }
     }
     void CompileShader(char *code)
     {

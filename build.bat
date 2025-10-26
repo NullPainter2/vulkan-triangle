@@ -6,6 +6,12 @@
     set CL_IS_DEFINED=1
 )
 
+pushd assets
+C:\VulkanSDK\1.3.268.0\bin\glslc.exe shader.vert --target-spv=spv1.6 -o ..\exe\vert.spv
+C:\VulkanSDK\1.3.268.0\bin\glslc.exe shader.frag --target-spv=spv1.6 -o ..\exe\frag.spv
+popd
+
+
 @rem /DEBUG:fastlink is not supported by remedybg
 @rem /Z7 full debuggin information
 @rem /Zo debug info for optimized code
@@ -18,7 +24,7 @@
 @rem /Fo ... folder with .obj
 @rem /Fd ... folder with vs104.pdb "Program Database"
 set debug=/DEBUG:FULL /Z7 /Zo /Zi
-set paths=/Fo.\exe\ /Fd.\exe\
+set paths=/Fo.\exe\ /Fd.\exe\ /I c:\VulkanSDK\1.3.268.0\Include\
 cl src/main.cpp %debug% %paths% /link user32.lib opengl32.lib gdi32.lib Winmm.lib /out:exe\main.exe
 
 @rem Might work too???
