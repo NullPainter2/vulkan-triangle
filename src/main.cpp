@@ -27,5 +27,6 @@ int main( int argc, char **argv )
     VK::Init();
     DrawTriangle();
     WaitForExit();
+    VK::Shutdown();
     return 0;
 }

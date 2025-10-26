@@ -9,6 +9,8 @@
 
 namespace VK
 {
+    HWND window = NULL;
+    
     //#define PFN_vkVoidFunction void*
 
     //#define VK_DEFINE_HANDLE(object) typedef struct object##_T* object;
@@ -23,6 +25,7 @@ namespace VK
     vk_fun(vkCreateInstance);
     vk_fun(vkEnumerateInstanceExtensionProperties);
     vk_fun(vkEnumerateInstanceLayerProperties);
+    vk_fun(vkEnumeratePhysicalDevices);
 
     void * _LoadProcedure(char *dllName, char *procName)
     {
@@ -59,6 +62,29 @@ namespace VK
         return VK_FALSE;
     }
 
+    bool quitFromMessageHandler = false;
+
+    LRESULT CALLBACK
+    _OnWindowMessage( HWND window, UINT message_id, WPARAM wparam, LPARAM lparam )
+    {
+        if( message_id == WM_SIZE )
+        {
+            //GPU::win32_resizeScreenBuffer( window );
+
+            return 0;
+        }
+        else if( message_id == WM_CLOSE )
+        {
+            quitFromMessageHandler = true;
+
+            return 0;
+        }
+        else
+        {
+            return DefWindowProcA( window, message_id, wparam, lparam );
+        }
+    }
+
     void Init()
     {
         // get loader https://docs.vulkan.org/guide/latest/loader.html
@@ -67,11 +93,9 @@ namespace VK
         vkCreateWin32SurfaceKHR = (PFN_vkCreateWin32SurfaceKHR) _LoadProcedure( "vulkan-1.dll", "vkCreateWin32SurfaceKHR" );
         vkEnumerateInstanceExtensionProperties = (PFN_vkEnumerateInstanceExtensionProperties) _LoadProcedure( "vulkan-1.dll", "vkEnumerateInstanceExtensionProperties" );
         vkEnumerateInstanceLayerProperties = (PFN_vkEnumerateInstanceLayerProperties) _LoadProcedure( "vulkan-1.dll", "vkEnumerateInstanceLayerProperties" );
-
+        vkEnumeratePhysicalDevices = (PFN_vkEnumeratePhysicalDevices) _LoadProcedure( "vulkan-1.dll", "vkEnumeratePhysicalDevices" );
 
         // https://docs.vulkan.org/tutorial/latest/01_Overview.html
-
-
 
         uint32_t extensionsCount = 0;
         char ** extensionNames = NULL;
@@ -139,8 +163,7 @@ namespace VK
         appInfo.pApplicationName = "My application name";
         appInfo.engineVersion = VK_MAKE_VERSION(1,0,0);
         appInfo.apiVersion = VK_API_VERSION_1_0;
-#if 0
-#endif        
+
         // create instance
         VkResult result = VK_TIMEOUT;
         VkInstance instance;
@@ -150,15 +173,40 @@ namespace VK
         createInfo.pNext = &debug1;
         createInfo.enabledExtensionCount = extensionsCount;
         createInfo.ppEnabledExtensionNames = extensionNames;
+        char * layers[] = {"VK_LAYER_KHRONOS_validation"};
+        createInfo.enabledLayerCount = 1;
+        createInfo.ppEnabledLayerNames = layers;
         //createInfo.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
         createInfo.pApplicationInfo = &appInfo; // (optional)
         result = vkCreateInstance(&createInfo,VK_NULL_HANDLE,&instance);
         assert(result == VK_SUCCESS);
 
-        // choose device from physical onese - some enumeration before
-        //VkPhysicalDevices 
+        // https://docs.vulkan.org/tutorial/latest/03_Drawing_a_triangle/00_Setup/03_Physical_devices_and_queue_families.html
 
-        //vkCreateWin32SurfaceKHR(VkInstance,)
+        // choose device from physical onese - some enumeration before
+        VkPhysicalDevice * devices = NULL;
+        uint32_t devicesCount = 0; 
+        assert(vkEnumeratePhysicalDevices(instance,&devicesCount,NULL) == VK_SUCCESS);
+        assert(devicesCount >= 1);
+        devices = (VkPhysicalDevice*) malloc(devicesCount * sizeof(devices[0]));
+        assert(devices);
+
+        WNDCLASSA windowClass = {};
+        windowClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+        windowClass.lpszClassName = "my-window-class";
+        windowClass.lpfnWndProc = _OnWindowMessage;
+        windowClass.hInstance = GetModuleHandle( nullptr );
+        assert(RegisterClassA(&windowClass));
+        window = CreateWindowExA(0,windowClass.lpszClassName,"Vulkan Triangle!",WS_TILEDWINDOW | WS_VISIBLE,0,0,800,600,NULL,NULL,NULL,NULL);
+        assert(window);
+
+        VkWin32SurfaceCreateInfoKHR createInfo32 = {};
+        createInfo32.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+        createInfo32.hwnd = window;
+        createInfo32.hinstance = windowClass.hInstance;
+
+        VkSurfaceKHR surface = NULL;
+        vkCreateWin32SurfaceKHR(instance, &createInfo32, NULL, &surface);
 
         //vkGetPhysicalDeviceProperties(physical_device, &properties)
 
@@ -181,5 +229,10 @@ namespace VK
     void Display()
     {
 
+    }
+
+    void Shutdown()
+    {
+        CloseWindow(window);
     }
 }
