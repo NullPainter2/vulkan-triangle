@@ -7,8 +7,6 @@
 
 #include "vulkan.hpp"
 
-
-
 void DrawTriangle()
 {
     // char * vertexShader = "";
