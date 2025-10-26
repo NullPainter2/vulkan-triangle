@@ -1,0 +1,1 @@
+vk_fun( vkGetInstanceProcAddr, PFN_vkVoidFunction, (VkInstance instance, const char* pName))
