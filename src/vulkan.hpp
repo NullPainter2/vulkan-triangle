@@ -31,7 +31,11 @@ namespace VK
 
     HWND window = NULL;
 
-    #define vk_fun(name) PFN_##name name;
+    int graphicQueIndex = -1;
+    int presentQueIndex = -1;
+    VkCommandBuffer commandBuffer;
+
+#define vk_fun(name) PFN_##name name;
     vk_fun(vkGetInstanceProcAddr);
     vk_fun(vkCreateWin32SurfaceKHR);
     vk_fun(vkCreateInstance);
@@ -60,6 +64,8 @@ namespace VK
     vk_fun(vkEndCommandBuffer);
     vk_fun(vkCreatePipelineLayout);
     vk_fun(vkCreateRenderPass);
+    vk_fun(vkCreateCommandPool);
+    vk_fun(vkAllocateCommandBuffers);
 
     void * _LoadProcedure(char *dllName, char *procName)
     {
@@ -253,6 +259,8 @@ namespace VK
             vkEndCommandBuffer = (PFN_vkEndCommandBuffer) _LoadProcedure("vulkan-1.dll", "vkEndCommandBuffer");
             vkCreatePipelineLayout = (PFN_vkCreatePipelineLayout) _LoadProcedure("vulkan-1.dll", "vkCreatePipelineLayout");
             vkCreateRenderPass = (PFN_vkCreateRenderPass) _LoadProcedure("vulkan-1.dll", "vkCreateRenderPass");
+            vkCreateCommandPool = (PFN_vkCreateCommandPool) _LoadProcedure("vulkan-1.dll", "vkCreateCommandPool");
+            vkAllocateCommandBuffers = (PFN_vkAllocateCommandBuffers) _LoadProcedure("vulkan-1.dll", "vkAllocateCommandBuffers");
 
             // glfw does it this way
             //vkEnumerateInstanceExtensionProperties = (PFN_vkEnumerateInstanceExtensionProperties) vkGetInstanceProcAddr( NULL, "vkEnumerateInstanceExtensionProperties" );
@@ -263,9 +271,6 @@ namespace VK
         #pragma endregion
         // https://docs.vulkan.org/tutorial/latest/01_Overview.html
 
-
-        int graphicQueIndex = -1;
-        int presentQueIndex = -1;
 
         instanceExtensionNames.push_back("VK_KHR_win32_surface"); // required by vkCreateWin32SurfaceKHR()
         instanceExtensionNames.push_back("VK_KHR_surface"); // required by VK_KHR_surface <- vkCreateWin32SurfaceKHR()
@@ -326,7 +331,8 @@ namespace VK
             shaderStageVert.module = vertModule;
             shaderStageVert.stage = VK_SHADER_STAGE_VERTEX_BIT;
             shaderStageVert.pName = "main";
-            shaderStageVert.pNext = &shaderStageFrag;
+            // shaderStageVert.pNext = &shaderStageFrag;
+            VkPipelineShaderStageCreateInfo shaderStages[] = {shaderStageVert,shaderStageFrag};
 
         #pragma endregion
 
@@ -335,6 +341,11 @@ namespace VK
             VkPipelineLayoutCreateInfo layoutInfo = {};
             layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
             assert(vkCreatePipelineLayout(device,&layoutInfo,NULL,&layout)==VK_SUCCESS);
+
+            VkFormat colorFormat = {};            
+            VkAttachmentDescription colorAttachment = {};
+            colorAttachment.format = colorFormat;
+            colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 
             VkRenderPass renderPass = {};
             VkRenderPassCreateInfo renderPassInfo = {};
@@ -353,8 +364,8 @@ namespace VK
 
             VkGraphicsPipelineCreateInfo pipelineInfo = {};
             pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-            pipelineInfo.stageCount = 1;
-            pipelineInfo.pStages = &shaderStageVert;
+            pipelineInfo.stageCount = 2;
+            pipelineInfo.pStages = shaderStages;
             pipelineInfo.renderPass =  renderPass; //   VK_NULL_HANDLE; ... https://docs.vulkan.org/samples/latest/samples/extensions/dynamic_rendering/README.html
             pipelineInfo.layout = layout;        
             VkPipelineVertexInputStateCreateInfo vertexInputState = {};
@@ -369,13 +380,72 @@ namespace VK
             VkPipelineInputAssemblyStateCreateInfo assInfo = {};
             assInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
             assInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-            // assInfo.primitiveRestartEnable = VK_FALSE
+            assInfo.primitiveRestartEnable = VK_FALSE;
             pipelineInfo.pInputAssemblyState  = &assInfo;
             VkPipelineCacheCreateInfo cacheInfo = {};
             cacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
             VkPipelineCache pipelineCache;
             assert(vkCreatePipelineCache(device,&cacheInfo,NULL,&pipelineCache)==VK_SUCCESS);
             assert(vkCreateGraphicsPipelines(device,pipelineCache,1,&pipelineInfo,NULL,&pipeline)==VK_SUCCESS);
+
+            VkViewport viewport = {};
+            viewport.x = 0;
+            viewport.y = 0;
+            viewport.width = WIDTH;
+            viewport.height = HEIGHT;
+            VkPipelineViewportStateCreateInfo viewportInfo = {};
+            viewportInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+            viewportInfo.viewportCount = 1;
+            viewportInfo.pViewports = &viewport;
+
+            VkPipelineRasterizationStateCreateInfo rasterInfo = {};
+            rasterInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+            rasterInfo.polygonMode = VK_POLYGON_MODE_FILL;
+            rasterInfo.lineWidth = 1.0f;
+            rasterInfo.cullMode = VK_CULL_MODE_NONE;
+            rasterInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+
+            VkPipelineColorBlendAttachmentState colorBlendInfo = {};
+            colorBlendInfo.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+
+            //viewportInfo.scissorCount = 1;
+
+            #pragma region command buffer
+
+            VkCommandPool commandPool;
+            VkCommandPoolCreateInfo poolCreate = {};
+            poolCreate.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            poolCreate.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+            poolCreate.queueFamilyIndex = graphicQueIndex;
+            assert(vkCreateCommandPool(device, &poolCreate, NULL, &commandPool) == VK_SUCCESS);
+            VkCommandBufferAllocateInfo bufferAllocateInfo = {};
+            bufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            bufferAllocateInfo.commandPool = commandPool;
+            bufferAllocateInfo.commandBufferCount = 1;
+            bufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            assert(vkAllocateCommandBuffers(device,&bufferAllocateInfo,&commandBuffer) == VK_SUCCESS);
+            VkCommandBufferBeginInfo beginInfo = {};
+            beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            vkBeginCommandBuffer(commandBuffer,&beginInfo);
+
+            // enable shader object
+            // add triangle
+            // add shader
+            // or add pipeline
+            // call shader
+            vkCmdBindPipeline(commandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline);
+
+            // VkShaderStageFlagBits bits;
+            // VkShaderEXT shaders;
+            // uint32_t stageCount;
+            // vkCmdBindShadersEXT(commandBuffer,stageCount,&bits,&shaders);
+
+            vkEndCommandBuffer(commandBuffer);
+            // VkDrawIndirectCommand
+
+            #pragma endregion
+
         #pragma endregion
     }
     void CompileShader(char *code)
@@ -388,27 +458,7 @@ namespace VK
     }
     void DrawCall()
     {
-        VkCommandBuffer commandBuffer = {};
-        VkCommandBufferBeginInfo beginInfo = {};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;        
-        vkBeginCommandBuffer(commandBuffer,&beginInfo);
-
-        // enable shader object
-        // add triangle
-        // add shader
-        // or add pipeline
-        // call shader
-        VkPipelineBindPoint bindPoint = {};
-        vkCmdBindPipeline(commandBuffer,bindPoint,pipeline);
-
-        VkShaderStageFlagBits bits;
-        VkShaderEXT shaders;
-        uint32_t stageCount;
-        vkCmdBindShadersEXT(commandBuffer,stageCount,&bits,&shaders);
-
-        vkEndCommandBuffer(commandBuffer);
         vkCmdDraw(commandBuffer,3,0,0,0);
-        // VkDrawIndirectCommand
     }
     void Display()
     {
