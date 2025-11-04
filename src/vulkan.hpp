@@ -37,6 +37,7 @@ namespace VK
     VkSwapchainKHR swapChain = NULL;
     VkDevice device = NULL;
     VkFence renderingFrameFence = NULL;
+    VkSemaphore frameReadySemaphore = {};
 
     #pragma region procedures loaded from .dll
 #define vk_fun(name) PFN_##name name;
@@ -82,6 +83,8 @@ namespace VK
     vk_fun(vkWaitForFences);
     vk_fun(vkGetDeviceQueue);
     vk_fun(vkResetFences);
+    vk_fun(vkCreateSemaphore);
+    vk_fun(vkAcquireNextImageKHR);
 
     #pragma endregion
 
@@ -290,6 +293,8 @@ namespace VK
             vkWaitForFences = (PFN_vkWaitForFences) _LoadProcedure("vulkan-1.dll", "vkWaitForFences");
             vkGetDeviceQueue = (PFN_vkGetDeviceQueue) _LoadProcedure("vulkan-1.dll", "vkGetDeviceQueue");
             vkResetFences = (PFN_vkResetFences) _LoadProcedure("vulkan-1.dll", "vkResetFences");
+            vkCreateSemaphore = (PFN_vkCreateSemaphore) _LoadProcedure("vulkan-1.dll", "vkCreateSemaphore");
+            vkAcquireNextImageKHR = (PFN_vkAcquireNextImageKHR) _LoadProcedure("vulkan-1.dll", "vkAcquireNextImageKHR");
 
 
             // glfw does it this way
@@ -581,6 +586,11 @@ namespace VK
             fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
             fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
             assert(vkCreateFence(device,&fenceInfo,NULL,&renderingFrameFence)==VK_SUCCESS);
+
+            VkSemaphoreCreateInfo semaphoreInfo = {};
+            semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+            assert(vkCreateSemaphore(device,&semaphoreInfo,NULL,&frameReadySemaphore)==VK_SUCCESS);
+
     }
 
     void CompileShader(char *code)
@@ -596,10 +606,6 @@ namespace VK
     }
     void Display()
     {
-        VkPresentInfoKHR presentInfo;
-        VkQueue que = NULL;
-        vkGetDeviceQueue(device,graphicQueIndex,0,&que);
-        assert(que);
         //vkQueuePresentKHR(que,&presentInfo);
 
 
@@ -622,7 +628,12 @@ namespace VK
         //     vkResetFences(device,1,&previousFrameFence);
         // }
 
+        // draw shit
         {
+            VkQueue que = NULL;
+            vkGetDeviceQueue(device,graphicQueIndex,0,&que);
+            assert(que);
+
             assert(vkWaitForFences(device,1,&renderingFrameFence,VK_TRUE,UINT64_MAX)==VK_SUCCESS); // 100ms ?
             vkResetFences(device,1,&renderingFrameFence);
 
@@ -634,7 +645,22 @@ namespace VK
 
             assert(vkWaitForFences(device,1,&renderingFrameFence,VK_TRUE,UINT64_MAX)==VK_SUCCESS); // 100ms ?
         }
-        // wait for gpu (fence)
+
+        // copy drawn shit to screen
+        {
+            VkQueue que = NULL;
+            vkGetDeviceQueue(device,presentQueIndex,0,&que);
+            assert(que);
+
+            VkPresentInfoKHR presentInfo = {};
+            presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+            presentInfo.swapchainCount = 1;
+            presentInfo.pSwapchains = &swapChain;
+            uint32_t imageIndex = 0;
+            assert(vkAcquireNextImageKHR(device,swapChain,UINT64_MAX,frameReadySemaphore,NULL,&imageIndex)==VK_SUCCESS);
+            presentInfo.pImageIndices = &imageIndex;
+            vkQueuePresentKHR(que,&presentInfo);
+        }
     }
 
     void Shutdown()
@@ -767,10 +793,12 @@ namespace VK
         for(int i=0;i<queCount;i++)
         {
             VkBool32 supported;
-            if(vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice,i,surface,&supported))
+            assert(vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice,i,surface,&supported)==VK_SUCCESS);
+            if((*presentQueIndex < 0) && supported == VK_TRUE) // we support only the same que atm
             {
                 *presentQueIndex = i;
             }
+
             if(queProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
             {
                 *graphicQueIndex = i;
@@ -778,8 +806,11 @@ namespace VK
             }
         }
 
-        assert(graphicQueIndex >= 0);
-        assert(presentQueIndex >= 0);
+        assert((*graphicQueIndex) >= 0);
+        assert((*presentQueIndex) >= 0);
+        assert(*presentQueIndex == *graphicQueIndex); // We support only this case atm
+
+        printf("PRESENT QUE = %d GRAPHIC QUE = %d\n", *presentQueIndex, *graphicQueIndex);
         
         VkDeviceQueueCreateInfo queCreateInfo = {};
         float quePriorities[] = {1.0};
