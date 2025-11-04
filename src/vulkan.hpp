@@ -34,7 +34,11 @@ namespace VK
     int graphicQueIndex = -1;
     int presentQueIndex = -1;
     VkCommandBuffer commandBuffer;
+    VkSwapchainKHR swapChain = NULL;
+    VkDevice device = NULL;
+    VkFence renderingFrameFence = NULL;
 
+    #pragma region procedures loaded from .dll
 #define vk_fun(name) PFN_##name name;
     vk_fun(vkGetInstanceProcAddr);
     vk_fun(vkCreateWin32SurfaceKHR);
@@ -66,6 +70,20 @@ namespace VK
     vk_fun(vkCreateRenderPass);
     vk_fun(vkCreateCommandPool);
     vk_fun(vkAllocateCommandBuffers);
+    vk_fun(vkCmdBeginRenderPass);
+    vk_fun(vkCreateFramebuffer);
+    vk_fun(vkCreateImageView);
+    vk_fun(vkCreateImage);
+    vk_fun(vkGetSwapchainImagesKHR);
+    vk_fun(vkCmdEndRenderPass);
+    vk_fun(vkQueueSubmit);
+    vk_fun(vkCreateFence);
+    vk_fun(vkDestroyFence);
+    vk_fun(vkWaitForFences);
+    vk_fun(vkGetDeviceQueue);
+    vk_fun(vkResetFences);
+
+    #pragma endregion
 
     void * _LoadProcedure(char *dllName, char *procName)
     {
@@ -174,7 +192,6 @@ namespace VK
 
     void _CreateSwapChain(VkDevice device, VkSurfaceKHR surface, VkPhysicalDevice physicalDevice)
     {
-        VkSwapchainKHR swapChain;
         VkSwapchainCreateInfoKHR swapInfo = {};
         swapInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
         swapInfo.surface = surface;
@@ -261,6 +278,19 @@ namespace VK
             vkCreateRenderPass = (PFN_vkCreateRenderPass) _LoadProcedure("vulkan-1.dll", "vkCreateRenderPass");
             vkCreateCommandPool = (PFN_vkCreateCommandPool) _LoadProcedure("vulkan-1.dll", "vkCreateCommandPool");
             vkAllocateCommandBuffers = (PFN_vkAllocateCommandBuffers) _LoadProcedure("vulkan-1.dll", "vkAllocateCommandBuffers");
+            vkCmdBeginRenderPass = (PFN_vkCmdBeginRenderPass) _LoadProcedure("vulkan-1.dll", "vkCmdBeginRenderPass");
+            vkCreateFramebuffer = (PFN_vkCreateFramebuffer) _LoadProcedure("vulkan-1.dll", "vkCreateFramebuffer");
+            vkCreateImageView = (PFN_vkCreateImageView) _LoadProcedure("vulkan-1.dll", "vkCreateImageView");
+            vkCreateImage = (PFN_vkCreateImage) _LoadProcedure("vulkan-1.dll", "vkCreateImage");
+            vkGetSwapchainImagesKHR = (PFN_vkGetSwapchainImagesKHR) _LoadProcedure("vulkan-1.dll", "vkGetSwapchainImagesKHR");
+            vkCmdEndRenderPass = (PFN_vkCmdEndRenderPass) _LoadProcedure("vulkan-1.dll", "vkCmdEndRenderPass");
+            vkQueueSubmit = (PFN_vkQueueSubmit) _LoadProcedure("vulkan-1.dll", "vkQueueSubmit");
+            vkCreateFence = (PFN_vkCreateFence) _LoadProcedure("vulkan-1.dll", "vkCreateFence");
+            vkDestroyFence = (PFN_vkDestroyFence) _LoadProcedure("vulkan-1.dll", "vkDestroyFence");
+            vkWaitForFences = (PFN_vkWaitForFences) _LoadProcedure("vulkan-1.dll", "vkWaitForFences");
+            vkGetDeviceQueue = (PFN_vkGetDeviceQueue) _LoadProcedure("vulkan-1.dll", "vkGetDeviceQueue");
+            vkResetFences = (PFN_vkResetFences) _LoadProcedure("vulkan-1.dll", "vkResetFences");
+
 
             // glfw does it this way
             //vkEnumerateInstanceExtensionProperties = (PFN_vkEnumerateInstanceExtensionProperties) vkGetInstanceProcAddr( NULL, "vkEnumerateInstanceExtensionProperties" );
@@ -288,7 +318,7 @@ namespace VK
         VkPhysicalDevice physicalDevice = _ChoosePhysicalDevice( instance );
 
         deviceExtensionNames.push_back("VK_KHR_swapchain");
-        VkDevice device = _CreateLogicalDevice(physicalDevice, surface, &graphicQueIndex, &presentQueIndex);
+        device = _CreateLogicalDevice(physicalDevice, surface, &graphicQueIndex, &presentQueIndex);
 
         _CreatePresentationQue(physicalDevice,graphicQueIndex,surface);
 
@@ -342,12 +372,10 @@ namespace VK
             layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
             assert(vkCreatePipelineLayout(device,&layoutInfo,NULL,&layout)==VK_SUCCESS);
 
-            VkFormat colorFormat = {};            
-            VkAttachmentDescription colorAttachment = {};
-            colorAttachment.format = colorFormat;
-            colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-
             VkRenderPass renderPass = {};
+            VkAttachmentDescription colorAttachment = {};
+            colorAttachment.format = VK_FORMAT_B8G8R8A8_SRGB;
+            colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
             VkRenderPassCreateInfo renderPassInfo = {};
             renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
             VkAttachmentReference inputAtt = {};
@@ -359,6 +387,8 @@ namespace VK
             // subpass.pInputAttachments = &inputAtt; // vkImageLayout    
             renderPassInfo.subpassCount = 1; // musn't be 0
             renderPassInfo.pSubpasses = &subpass;
+            renderPassInfo.attachmentCount = 1;
+            renderPassInfo.pAttachments = &colorAttachment;
             assert(vkCreateRenderPass(device,&renderPassInfo,NULL,&renderPass)==VK_SUCCESS);
 
 
@@ -413,12 +443,111 @@ namespace VK
 
             #pragma region command buffer
 
+
+            // enable shader object
+            // add triangle
+            // add shader
+            // or add pipeline
+            // call shader
+
+            uint32_t swapChainImageCount = 0;
+            assert(vkGetSwapchainImagesKHR(device,swapChain,&swapChainImageCount,NULL)==VK_SUCCESS);
+            VkImage * images = (VkImage*) calloc(swapChainImageCount, sizeof(VkImage));
+            assert(images);
+            assert(swapChainImageCount >= 1);
+            assert(vkGetSwapchainImagesKHR(device,swapChain,&swapChainImageCount,images)==VK_SUCCESS);
+            printf("swapchain image count = %d\n", swapChainImageCount);
+            
+            VkFramebuffer * frameBuffers = (VkFramebuffer*) calloc(swapChainImageCount,sizeof VkFramebuffer);
+            assert(frameBuffers);
+
+            for(int i=0;i<swapChainImageCount;i++) {
+                VkFramebuffer frameBuffer;
+                VkFramebufferCreateInfo framebufferInfo = {};
+                framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+                framebufferInfo.height = HEIGHT;
+                framebufferInfo.width = WIDTH;
+                framebufferInfo.renderPass = renderPass; // FIXME: 
+                framebufferInfo.layers = 1;
+                // VK_COMPONENT_SWIZZLE_IDENTITY
+                
+                VkImageView imageView;
+                VkImageViewCreateInfo imageViewCreate = {};
+                imageViewCreate.sType= VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+                imageViewCreate.format = VK_FORMAT_B8G8R8A8_SRGB;
+                imageViewCreate.viewType = VK_IMAGE_VIEW_TYPE_2D;
+                imageViewCreate.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                imageViewCreate.subresourceRange.levelCount = 1;
+                imageViewCreate.subresourceRange.layerCount = 1;
+                imageViewCreate.image = images[i];
+                assert(vkCreateImageView(device,&imageViewCreate,NULL,&imageView)==VK_SUCCESS);
+                
+                VkImageView attachments[] = {imageView};
+                framebufferInfo.attachmentCount = 1;
+                framebufferInfo.pAttachments = attachments; // VkImageView
+                assert(vkCreateFramebuffer(device,&framebufferInfo,NULL,&frameBuffer)==VK_SUCCESS);
+                frameBuffers[i] = frameBuffer;
+            }
+
+#pragma region Prepare texture
+            // https://vulkan-tutorial.com/Texture_mapping/Images
+            /*
+            VkImage image = {};
+            VkImageCreateInfo imageInfo = {};
+            imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            imageInfo.format = VK_FORMAT_B8G8R8A8_SRGB;
+            imageInfo.imageType = VK_IMAGE_TYPE_2D;
+            imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+            imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+            imageInfo.extent.width = WIDTH;
+            imageInfo.extent.height = WIDTH;
+            imageInfo.extent.depth = 1; // 32; // RGBA???            
+            imageInfo.mipLevels = 1;
+            imageInfo.arrayLayers = 1;
+            assert(vkCreateImage(device,&imageInfo,NULL,&image)==VK_SUCCESS);            
+            VkDeviceMemory deviceMemory = NULL;
+            vkGetDeviceImageMemoryRequirements(device,imageRequirementsInfo,VkMemoryRequirements2)
+            // vkallocaDeviceMemorya
+            //VkMemoryOff
+            vkBindImageMemory(device,image,deviceMemory,memoryOffset);
+            */
+#pragma endregion            
+            //imageInfo.extent.depth = 
+            // imageViewCreate.image = image;
+            // imageCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            /*
+            createInfo.subresourceRange.baseMipLevel = 0;
+            createInfo.subresourceRange.levelCount = 1;
+            createInfo.subresourceRange.baseArrayLayer = 0;
+            createInfo.subresourceRange.layerCount = 1;
+            */
+
+            // VkShaderStageFlagBits bits;
+            // VkShaderEXT shaders;
+            // uint32_t stageCount;
+            // vkCmdBindShadersEXT(commandBuffer,stageCount,&bits,&shaders);
+
+            // have active render pass
+            // comand buffer has recording state
+
+            // VkDrawIndirectCommand
+
+            #pragma endregion
+
+        #pragma endregion
+
+
+#pragma region Rendering        
+
+// https://vulkan-tutorial.com/Drawing_a_triangle/Drawing/Command_buffers
+
             VkCommandPool commandPool;
             VkCommandPoolCreateInfo poolCreate = {};
             poolCreate.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
             poolCreate.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
             poolCreate.queueFamilyIndex = graphicQueIndex;
             assert(vkCreateCommandPool(device, &poolCreate, NULL, &commandPool) == VK_SUCCESS);
+
             VkCommandBufferAllocateInfo bufferAllocateInfo = {};
             bufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
             bufferAllocateInfo.commandPool = commandPool;
@@ -429,25 +558,31 @@ namespace VK
             beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
             vkBeginCommandBuffer(commandBuffer,&beginInfo);
 
-            // enable shader object
-            // add triangle
-            // add shader
-            // or add pipeline
-            // call shader
+            VkRenderPassBeginInfo renderBeginInfo = {};
+            renderBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            renderBeginInfo.renderPass = renderPass;
+            // renderBeginInfo.clearValueCount
+            renderBeginInfo.framebuffer = frameBuffers[0];
+            renderBeginInfo.renderArea.extent.width = WIDTH;
+            renderBeginInfo.renderArea.extent.height = HEIGHT;
+            renderBeginInfo.renderArea.offset.x = 0;
+            renderBeginInfo.renderArea.offset.y = 0;
+            vkCmdBeginRenderPass(commandBuffer,&renderBeginInfo,VK_SUBPASS_CONTENTS_INLINE);
+
             vkCmdBindPipeline(commandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline);
 
-            // VkShaderStageFlagBits bits;
-            // VkShaderEXT shaders;
-            // uint32_t stageCount;
-            // vkCmdBindShadersEXT(commandBuffer,stageCount,&bits,&shaders);
+            vkCmdDraw(commandBuffer,3,0,0,0);
 
+            vkCmdEndRenderPass(commandBuffer);
             vkEndCommandBuffer(commandBuffer);
-            // VkDrawIndirectCommand
+#pragma endregion
 
-            #pragma endregion
-
-        #pragma endregion
+            VkFenceCreateInfo fenceInfo = {};
+            fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+            assert(vkCreateFence(device,&fenceInfo,NULL,&renderingFrameFence)==VK_SUCCESS);
     }
+
     void CompileShader(char *code)
     {
 
@@ -458,17 +593,53 @@ namespace VK
     }
     void DrawCall()
     {
-        vkCmdDraw(commandBuffer,3,0,0,0);
     }
     void Display()
     {
         VkPresentInfoKHR presentInfo;
-        VkQueue que;
-        vkQueuePresentKHR(que,&presentInfo);
+        VkQueue que = NULL;
+        vkGetDeviceQueue(device,graphicQueIndex,0,&que);
+        assert(que);
+        //vkQueuePresentKHR(que,&presentInfo);
+
+
+        // {
+        //     VkSemaphoreCreateInfo semaphoreCreate = {};
+        //     semaphoreCreate.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        //     VkFenceCreateInfo fenceCreate = {};
+        //     fenceCreate.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        //     fenceCreate.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+        //     VkFence previousFrameFence;
+        //     VkFence currentFrameFence;
+
+        //     assert(vkCreateFence(device,&fenceCreate,NULL,&previousFrameFence)==VK_SUCCESS);
+        //     assert(vkCreateFence(device,&fenceCreate,NULL,&currentFrameFence)==VK_SUCCESS);
+
+        //     assert(vkCreateSemaphore(device,&fenceCreate,NULL,&fence)==VK_SUCCESS);
+
+        //     vkWaitForFences(device,1,&previousFrameFence,VK_TRUE,UINT64_MAX);
+        //     vkResetFences(device,1,&previousFrameFence);
+        // }
+
+        {
+            assert(vkWaitForFences(device,1,&renderingFrameFence,VK_TRUE,UINT64_MAX)==VK_SUCCESS); // 100ms ?
+            vkResetFences(device,1,&renderingFrameFence);
+
+            VkSubmitInfo submitInfo = {};
+            submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submitInfo.commandBufferCount = 1;
+            submitInfo.pCommandBuffers = &commandBuffer;
+            assert(vkQueueSubmit(que,1,&submitInfo,renderingFrameFence)==VK_SUCCESS);
+
+            assert(vkWaitForFences(device,1,&renderingFrameFence,VK_TRUE,UINT64_MAX)==VK_SUCCESS); // 100ms ?
+        }
+        // wait for gpu (fence)
     }
 
     void Shutdown()
     {
+        vkDestroyFence(device,renderingFrameFence,NULL);
         CloseWindow(window);
     }
 
@@ -499,6 +670,7 @@ namespace VK
         }
         
         /*
+        */
         uint32_t layersCount = 0;
         VkLayerProperties *layers;
         assert(vkEnumerateInstanceLayerProperties(&layersCount,NULL) == VK_SUCCESS);
@@ -509,7 +681,6 @@ namespace VK
         {
             printf("- layer '%s': '%s'\n",layers[i].layerName, layers[i].description);
         }
-            */
 
 
         VkDebugUtilsMessengerCreateInfoEXT debug1 = {};
