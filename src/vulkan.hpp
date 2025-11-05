@@ -15,6 +15,8 @@ namespace VK
     VkPhysicalDevice _ChoosePhysicalDevice(VkInstance instance);
     VkInstance _CreateInstance();
 
+    void DrawCall(uint32_t frameBufferIndex);
+
     char * layerNames[] = {"VK_LAYER_KHRONOS_validation"};
     int layerNamesCount = 1;
 
@@ -38,6 +40,8 @@ namespace VK
     VkDevice device = NULL;
     VkFence renderingFrameFence = NULL;
     VkSemaphore frameReadySemaphore = {};
+    VkRenderPass renderPass = {};
+    VkFramebuffer * frameBuffers = NULL;
 
     #pragma region procedures loaded from .dll
 #define vk_fun(name) PFN_##name name;
@@ -86,6 +90,7 @@ namespace VK
     vk_fun(vkCreateSemaphore);
     vk_fun(vkAcquireNextImageKHR);
     vk_fun(vkCmdSetViewport);
+    vk_fun(vkResetCommandBuffer);
 
     #pragma endregion
 
@@ -295,6 +300,7 @@ namespace VK
             vkResetFences = (PFN_vkResetFences) _LoadProcedure("vulkan-1.dll", "vkResetFences");
             vkCreateSemaphore = (PFN_vkCreateSemaphore) _LoadProcedure("vulkan-1.dll", "vkCreateSemaphore");
             vkAcquireNextImageKHR = (PFN_vkAcquireNextImageKHR) _LoadProcedure("vulkan-1.dll", "vkAcquireNextImageKHR");
+            vkResetCommandBuffer = (PFN_vkResetCommandBuffer) _LoadProcedure("vulkan-1.dll", "vkResetCommandBuffer");
 
 
             // glfw does it this way
@@ -334,11 +340,11 @@ namespace VK
 
             // https://vulkan-tutorial.com/Drawing_a_triangle/Graphics_pipeline_basics/Shader_modules
 
-            VkShaderModuleCreateInfo moduleInfo = {};
-            moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
             
             VkShaderModule fragModule;
             {
+                VkShaderModuleCreateInfo moduleInfo = {};
+                moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
                 File::file_content fragShader = File::Read("frag.spv");
                 assert(fragShader.isOK);
                 moduleInfo.codeSize = fragShader.count;
@@ -348,6 +354,8 @@ namespace VK
 
             VkShaderModule vertModule;
             {
+                VkShaderModuleCreateInfo moduleInfo = {};
+                moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
                 File::file_content vertShader = File::Read("vert.spv");
                 assert(vertShader.isOK);
                 moduleInfo.codeSize = vertShader.count;
@@ -378,10 +386,14 @@ namespace VK
             layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
             assert(vkCreatePipelineLayout(device,&layoutInfo,NULL,&layout)==VK_SUCCESS);
 
-            VkRenderPass renderPass = {};
+            VkRenderPassCreateInfo renderPassInfo = {};
+            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+
             VkAttachmentDescription colorAttachment = {};
             colorAttachment.format = VK_FORMAT_B8G8R8A8_SRGB;
             colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+            colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             /*
              DEBUG: [VUID-VkPresentInfoKHR-pImageIndices-01430] 'Validation Error: [ VUID-VkPresentInfoKHR-pImageIndices-01430 ] Object 0: handle = 0x1f9a8c35d70,
              type = VK_OBJECT_TYPE_QUEUE; | MessageID = 0x48ad24c6 | 
@@ -393,21 +405,32 @@ namespace VK
              on a VkDevice 
              (https://vulkan.lunarg.com/doc/view/1.3.268.0/windows/1.3-extensions/vkspec.html#VUID-VkPresentInfoKHR-pImageIndices-01430)'
             */
-            colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-            //
-            VkRenderPassCreateInfo renderPassInfo = {};
-            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-            VkAttachmentReference inputAtt = {};
-            inputAtt.attachment = 1;
-            inputAtt.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            VkSubpassDescription subpass = {};    
-            //subpass.flags = VK_SUBPASS_DESCRIPTION_RASTERIZATION_ORDER_ATTACHMENT_COLOR_ACCESS_BIT_EXT;
-            //subpass.inputAttachmentCount = 0;
-            // subpass.pInputAttachments = &inputAtt; // vkImageLayout    
-            renderPassInfo.subpassCount = 1; // musn't be 0
-            renderPassInfo.pSubpasses = &subpass;
+            colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR; // also in https://vulkan-tutorial.com/Drawing_a_triangle/Graphics_pipeline_basics/Render_passes
             renderPassInfo.attachmentCount = 1;
             renderPassInfo.pAttachments = &colorAttachment;
+            
+            VkAttachmentReference inputAtt = {};
+            inputAtt.attachment = 0;
+            inputAtt.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            VkSubpassDescription subpass = {};    
+            subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+            // subpass.flags = VK_SUBPASS_DESCRIPTION_RASTERIZATION_ORDER_ATTACHMENT_COLOR_ACCESS_BIT_EXT;
+            subpass.inputAttachmentCount = 1;
+            subpass.pInputAttachments = &inputAtt; // vkImageLayout    
+            renderPassInfo.subpassCount = 1; // musn't be 0
+            renderPassInfo.pSubpasses = &subpass;
+            
+
+            VkSubpassDependency dependency{};
+            dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+            dependency.dstSubpass = 0;
+            dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.srcAccessMask = 0;
+            dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            renderPassInfo.dependencyCount = 1;
+            renderPassInfo.pDependencies = &dependency;
+
             assert(vkCreateRenderPass(device,&renderPassInfo,NULL,&renderPass)==VK_SUCCESS);
 
 
@@ -479,7 +502,7 @@ namespace VK
             assert(vkGetSwapchainImagesKHR(device,swapChain,&swapChainImageCount,images)==VK_SUCCESS);
             printf("swapchain image count = %d\n", swapChainImageCount);
             
-            VkFramebuffer * frameBuffers = (VkFramebuffer*) calloc(swapChainImageCount,sizeof VkFramebuffer);
+            frameBuffers = (VkFramebuffer*) calloc(swapChainImageCount,sizeof VkFramebuffer);
             assert(frameBuffers);
 
             for(int i=0;i<swapChainImageCount;i++) {
@@ -575,39 +598,10 @@ namespace VK
             bufferAllocateInfo.commandBufferCount = 1;
             bufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             assert(vkAllocateCommandBuffers(device,&bufferAllocateInfo,&commandBuffer) == VK_SUCCESS);
-            VkCommandBufferBeginInfo beginInfo = {};
-            beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-            vkBeginCommandBuffer(commandBuffer,&beginInfo);
 
-            VkRenderPassBeginInfo renderBeginInfo = {};
-            renderBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-            renderBeginInfo.renderPass = renderPass;
-            // renderBeginInfo.clearValueCount
-            renderBeginInfo.framebuffer = frameBuffers[0];
-            renderBeginInfo.renderArea.extent.width = WIDTH;
-            renderBeginInfo.renderArea.extent.height = HEIGHT;
-            renderBeginInfo.renderArea.offset.x = 0;
-            renderBeginInfo.renderArea.offset.y = 0;
-            vkCmdBeginRenderPass(commandBuffer,&renderBeginInfo,VK_SUBPASS_CONTENTS_INLINE);
 
-            vkCmdBindPipeline(commandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline);
+            //DrawCall(0);
 
-            if(0) // this crashes pipeline!!!
-            {
-                VkViewport viewport = {};
-                viewport.height = HEIGHT;
-                viewport.width = WIDTH;
-                viewport.x = 0;
-                viewport.y = 0;
-                viewport.minDepth = 0;
-                viewport.maxDepth = 1;
-                vkCmdSetViewport(commandBuffer,0,1,&viewport);
-            }
-
-            vkCmdDraw(commandBuffer,3,1,0,0);
-
-            vkCmdEndRenderPass(commandBuffer);
-            vkEndCommandBuffer(commandBuffer);
 #pragma endregion
 
             VkFenceCreateInfo fenceInfo = {};
@@ -629,9 +623,50 @@ namespace VK
     {
 
     }
-    void DrawCall()
+    
+    void DrawCall(uint32_t frameBufferIndex)
     {
+        VkCommandBufferBeginInfo beginInfo = {};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        vkBeginCommandBuffer(commandBuffer,&beginInfo);
+
+        VkRenderPassBeginInfo renderBeginInfo = {};
+        renderBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderBeginInfo.renderPass = renderPass;
+        // renderBeginInfo.clearValueCount
+        renderBeginInfo.framebuffer = frameBuffers[frameBufferIndex];
+        renderBeginInfo.renderArea.extent.width = WIDTH;
+        renderBeginInfo.renderArea.extent.height = HEIGHT;
+        renderBeginInfo.renderArea.offset.x = 0;
+        renderBeginInfo.renderArea.offset.y = 0;
+        VkClearValue clearValue = {};
+        clearValue.color = {.5f, 0, .5f, 1};
+        // clearValue.depthStencil
+        VkClearValue clearValues[] = {clearValue};
+        renderBeginInfo.clearValueCount = 1;
+        renderBeginInfo.pClearValues = clearValues;
+        vkCmdBeginRenderPass(commandBuffer,&renderBeginInfo,VK_SUBPASS_CONTENTS_INLINE);
+
+        vkCmdBindPipeline(commandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline);
+
+        if(0) // this crashes pipeline!!!
+        {
+            VkViewport viewport = {};
+            viewport.height = HEIGHT;
+            viewport.width = WIDTH;
+            viewport.x = 0;
+            viewport.y = 0;
+            viewport.minDepth = 0;
+            viewport.maxDepth = 1;
+            vkCmdSetViewport(commandBuffer,0,1,&viewport);
+        }
+
+        vkCmdDraw(commandBuffer,3,1,0,0);
+
+        vkCmdEndRenderPass(commandBuffer);
+        vkEndCommandBuffer(commandBuffer);
     }
+
     void Display()
     {
         //vkQueuePresentKHR(que,&presentInfo);
@@ -656,6 +691,8 @@ namespace VK
         //     vkResetFences(device,1,&previousFrameFence);
         // }
 
+
+
         // draw shit
         {
             VkQueue que = NULL;
@@ -664,6 +701,14 @@ namespace VK
 
             assert(vkWaitForFences(device,1,&renderingFrameFence,VK_TRUE,UINT64_MAX)==VK_SUCCESS); // 100ms ?
             vkResetFences(device,1,&renderingFrameFence);
+
+            if(1)
+            {
+                uint32_t imageIndex = 0;
+                assert(vkAcquireNextImageKHR(device,swapChain,UINT64_MAX,frameReadySemaphore,NULL,&imageIndex)==VK_SUCCESS);
+                vkResetCommandBuffer(commandBuffer,0);
+                DrawCall(imageIndex);
+            }
 
             VkSubmitInfo submitInfo = {};
             submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -685,7 +730,7 @@ namespace VK
             presentInfo.swapchainCount = 1;
             presentInfo.pSwapchains = &swapChain;
             uint32_t imageIndex = 0;
-            assert(vkAcquireNextImageKHR(device,swapChain,UINT64_MAX,frameReadySemaphore,NULL,&imageIndex)==VK_SUCCESS);
+            //assert(vkAcquireNextImageKHR(device,swapChain,UINT64_MAX,frameReadySemaphore,NULL,&imageIndex)==VK_SUCCESS);
             presentInfo.pImageIndices = &imageIndex;
             vkQueuePresentKHR(que,&presentInfo);
         }
