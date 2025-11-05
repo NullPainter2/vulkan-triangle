@@ -42,6 +42,7 @@ namespace VK
     VkSemaphore frameReadySemaphore = {};
     VkRenderPass renderPass = {};
     VkFramebuffer * frameBuffers = NULL;
+    VkSurfaceCapabilitiesKHR caps = {};
 
     #pragma region procedures loaded from .dll
 #define vk_fun(name) PFN_##name name;
@@ -235,7 +236,6 @@ namespace VK
         assert(presents);
         assert(vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice,surface,&presentsCount,presents)==VK_SUCCESS);
 
-        VkSurfaceCapabilitiesKHR caps = {};
         assert(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface,&caps) == VK_SUCCESS);
         swapInfo.minImageCount = caps.minImageCount;
         swapInfo.imageFormat = formats[bestFormatIndex].format; // VK_FORMAT_B8G8R8A8_SRGB
@@ -249,8 +249,23 @@ namespace VK
         extent.width = caps.minImageExtent.width;//WIDTH;
         extent.height = caps.minImageExtent.height;//HEIGHT;
         swapInfo.imageExtent = extent;
+        swapInfo.clipped = VK_TRUE; // tutorial
         VkResult result = vkCreateSwapchainKHR(device,&swapInfo,NULL,&swapChain);
         assert(result==VK_SUCCESS);
+    }
+
+    int getWidth(int width, VkSurfaceCapabilitiesKHR caps)
+    {
+        if(width > caps.maxImageExtent.width) return caps.maxImageExtent.width;
+        if(width < caps.minImageExtent.width) return caps.minImageExtent.width;        
+        return width;
+    }
+
+    int getHeight(int height, VkSurfaceCapabilitiesKHR caps)
+    {
+        if(height > caps.maxImageExtent.height) return caps.maxImageExtent.height;
+        if(height < caps.minImageExtent.height) return caps.minImageExtent.height;
+        return height;
     }
 
     void Init()
@@ -412,11 +427,13 @@ namespace VK
             VkAttachmentReference inputAtt = {};
             inputAtt.attachment = 0;
             inputAtt.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            //
             VkSubpassDescription subpass = {};    
             subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
             // subpass.flags = VK_SUBPASS_DESCRIPTION_RASTERIZATION_ORDER_ATTACHMENT_COLOR_ACCESS_BIT_EXT;
-            subpass.inputAttachmentCount = 1;
-            subpass.pInputAttachments = &inputAtt; // vkImageLayout    
+            subpass.colorAttachmentCount = 1;
+            subpass.pColorAttachments = &inputAtt; // vkImageLayout    
+            //
             renderPassInfo.subpassCount = 1; // musn't be 0
             renderPassInfo.pSubpasses = &subpass;
             
@@ -463,8 +480,8 @@ namespace VK
             VkViewport viewport = {};
             viewport.x = 0;
             viewport.y = 0;
-            viewport.width = WIDTH;
-            viewport.height = HEIGHT;
+            viewport.width = getWidth(WIDTH,caps);
+            viewport.height = getHeight(HEIGHT,caps);
             viewport.minDepth = 0;
             viewport.maxDepth = 1;
             VkPipelineViewportStateCreateInfo viewportInfo = {};
@@ -509,8 +526,8 @@ namespace VK
                 VkFramebuffer frameBuffer;
                 VkFramebufferCreateInfo framebufferInfo = {};
                 framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-                framebufferInfo.height = HEIGHT;
-                framebufferInfo.width = WIDTH;
+                framebufferInfo.height = getHeight(HEIGHT,caps);
+                framebufferInfo.width = getWidth(WIDTH,caps);
                 framebufferInfo.renderPass = renderPass; // FIXME: 
                 framebufferInfo.layers = 1;
                 // VK_COMPONENT_SWIZZLE_IDENTITY
@@ -635,8 +652,8 @@ namespace VK
         renderBeginInfo.renderPass = renderPass;
         // renderBeginInfo.clearValueCount
         renderBeginInfo.framebuffer = frameBuffers[frameBufferIndex];
-        renderBeginInfo.renderArea.extent.width = WIDTH;
-        renderBeginInfo.renderArea.extent.height = HEIGHT;
+        renderBeginInfo.renderArea.extent.width = getWidth(WIDTH,caps);
+        renderBeginInfo.renderArea.extent.height = getHeight(HEIGHT,caps);
         renderBeginInfo.renderArea.offset.x = 0;
         renderBeginInfo.renderArea.offset.y = 0;
         VkClearValue clearValue = {};
