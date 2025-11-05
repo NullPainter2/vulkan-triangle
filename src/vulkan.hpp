@@ -85,6 +85,7 @@ namespace VK
     vk_fun(vkResetFences);
     vk_fun(vkCreateSemaphore);
     vk_fun(vkAcquireNextImageKHR);
+    vk_fun(vkCmdSetViewport);
 
     #pragma endregion
 
@@ -268,8 +269,7 @@ namespace VK
             vkGetPhysicalDeviceSurfaceCapabilitiesKHR = (PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceSurfaceCapabilitiesKHR" );
             vkGetPhysicalDeviceSurfaceFormatsKHR = (PFN_vkGetPhysicalDeviceSurfaceFormatsKHR) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceSurfaceFormatsKHR" );
             vkGetPhysicalDeviceSurfacePresentModesKHR = (PFN_vkGetPhysicalDeviceSurfacePresentModesKHR) _LoadProcedure( "vulkan-1.dll", "vkGetPhysicalDeviceSurfacePresentModesKHR" );
-            vkCreateShaderModule = (PFN_vkCreateShaderModule) _LoadProcedure( "vulkan-1.dll", "vkCreateShaderModule" );
-            vkCreateShaderModule = (PFN_vkCreateShaderModule) _LoadProcedure("vulkan-1.dll", "vkCreateShaderModule");
+            vkCreateShaderModule = (PFN_vkCreateShaderModule) _LoadProcedure( "vulkan-1.dll", "vkCreateShaderModule" );            
             vkCreatePipelineCache = (PFN_vkCreatePipelineCache) _LoadProcedure("vulkan-1.dll", "vkCreatePipelineCache");
             vkCreateGraphicsPipelines = (PFN_vkCreateGraphicsPipelines) _LoadProcedure("vulkan-1.dll", "vkCreateGraphicsPipelines");
             vkBeginCommandBuffer = (PFN_vkBeginCommandBuffer) _LoadProcedure("vulkan-1.dll", "vkBeginCommandBuffer");
@@ -342,15 +342,16 @@ namespace VK
                 File::file_content fragShader = File::Read("frag.spv");
                 assert(fragShader.isOK);
                 moduleInfo.codeSize = fragShader.count;
-                moduleInfo.pCode = (uint32_t*) fragShader.bytes;        
+                moduleInfo.pCode = (uint32_t*) fragShader.bytes;
                 assert(vkCreateShaderModule(device,&moduleInfo,NULL,&fragModule)==VK_SUCCESS);
             }
 
             VkShaderModule vertModule;
             {
                 File::file_content vertShader = File::Read("vert.spv");
+                assert(vertShader.isOK);
                 moduleInfo.codeSize = vertShader.count;
-                moduleInfo.pCode = (uint32_t*) vertShader.bytes;        
+                moduleInfo.pCode = (uint32_t*) vertShader.bytes;
                 assert(vkCreateShaderModule(device,&moduleInfo,NULL,&vertModule)==VK_SUCCESS);
             }
 
@@ -381,6 +382,19 @@ namespace VK
             VkAttachmentDescription colorAttachment = {};
             colorAttachment.format = VK_FORMAT_B8G8R8A8_SRGB;
             colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+            /*
+             DEBUG: [VUID-VkPresentInfoKHR-pImageIndices-01430] 'Validation Error: [ VUID-VkPresentInfoKHR-pImageIndices-01430 ] Object 0: handle = 0x1f9a8c35d70,
+             type = VK_OBJECT_TYPE_QUEUE; | MessageID = 0x48ad24c6 | 
+             vkQueuePresentKHR(): pPresentInfo->pSwapchains[0] images passed to present must be in layout VK_IMAGE_LAYOUT_PRESENT_SRC_KHR 
+             or VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR but is in VK_IMAGE_LAYOUT_UNDEFINED. 
+             The Vulkan spec states: Each element of pImageIndices must be the index of a presentable image acquired from the swapchain
+             specified by the corresponding element of the pSwapchains array, and the presented image subresource must be in the
+             VK_IMAGE_LAYOUT_PRESENT_SRC_KHR or VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR layout at the time the operation is executed 
+             on a VkDevice 
+             (https://vulkan.lunarg.com/doc/view/1.3.268.0/windows/1.3-extensions/vkspec.html#VUID-VkPresentInfoKHR-pImageIndices-01430)'
+            */
+            colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            //
             VkRenderPassCreateInfo renderPassInfo = {};
             renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
             VkAttachmentReference inputAtt = {};
@@ -428,6 +442,8 @@ namespace VK
             viewport.y = 0;
             viewport.width = WIDTH;
             viewport.height = HEIGHT;
+            viewport.minDepth = 0;
+            viewport.maxDepth = 1;
             VkPipelineViewportStateCreateInfo viewportInfo = {};
             viewportInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
             viewportInfo.viewportCount = 1;
@@ -576,7 +592,19 @@ namespace VK
 
             vkCmdBindPipeline(commandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline);
 
-            vkCmdDraw(commandBuffer,3,0,0,0);
+            if(0) // this crashes pipeline!!!
+            {
+                VkViewport viewport = {};
+                viewport.height = HEIGHT;
+                viewport.width = WIDTH;
+                viewport.x = 0;
+                viewport.y = 0;
+                viewport.minDepth = 0;
+                viewport.maxDepth = 1;
+                vkCmdSetViewport(commandBuffer,0,1,&viewport);
+            }
+
+            vkCmdDraw(commandBuffer,3,1,0,0);
 
             vkCmdEndRenderPass(commandBuffer);
             vkEndCommandBuffer(commandBuffer);
