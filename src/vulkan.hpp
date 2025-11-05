@@ -92,6 +92,7 @@ namespace VK
     vk_fun(vkAcquireNextImageKHR);
     vk_fun(vkCmdSetViewport);
     vk_fun(vkResetCommandBuffer);
+    vk_fun(vkCmdSetScissor);
 
     #pragma endregion
 
@@ -316,6 +317,7 @@ namespace VK
             vkCreateSemaphore = (PFN_vkCreateSemaphore) _LoadProcedure("vulkan-1.dll", "vkCreateSemaphore");
             vkAcquireNextImageKHR = (PFN_vkAcquireNextImageKHR) _LoadProcedure("vulkan-1.dll", "vkAcquireNextImageKHR");
             vkResetCommandBuffer = (PFN_vkResetCommandBuffer) _LoadProcedure("vulkan-1.dll", "vkResetCommandBuffer");
+            vkCmdSetScissor = (PFN_vkCmdSetScissor) _LoadProcedure("vulkan-1.dll", "vkCmdSetScissor");
 
 
             // glfw does it this way
@@ -483,19 +485,25 @@ namespace VK
             viewportInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
             viewportInfo.viewportCount = 1;
             viewportInfo.pViewports = &viewport;
+            VkRect2D scissor = {};
+            scissor.extent.width = getWidth(WIDTH,caps);
+            scissor.extent.height = getHeight(WIDTH,caps);
+            viewportInfo.scissorCount = 1;
+            viewportInfo.pScissors = &scissor;
             pipelineInfo.pViewportState = &viewportInfo;
 
             VkPipelineRasterizationStateCreateInfo rasterInfo = {};
             rasterInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
             rasterInfo.polygonMode = VK_POLYGON_MODE_FILL;
             rasterInfo.lineWidth = 1.0f;
-            rasterInfo.cullMode = VK_CULL_MODE_BACK_BIT;//VK_CULL_MODE_NONE;
+            rasterInfo.cullMode = VK_CULL_MODE_NONE;//VK_CULL_MODE_BACK_BIT;//VK_CULL_MODE_NONE;
             rasterInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
             pipelineInfo.pRasterizationState = &rasterInfo;
 
             VkPipelineColorBlendAttachmentState colorBlendInfo = {};
             colorBlendInfo.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
+            // This is required
             VkPipelineColorBlendStateCreateInfo colorBlending = {};
             colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
             colorBlending.logicOpEnable = VK_FALSE;
@@ -513,6 +521,7 @@ namespace VK
             VkPipelineCache pipelineCache;
             assert(vkCreatePipelineCache(device,&cacheInfo,NULL,&pipelineCache)==VK_SUCCESS);
 
+            assert(pipelineInfo.pColorBlendState);
             assert(vkCreateGraphicsPipelines(device,pipelineCache,1,&pipelineInfo,NULL,&pipeline)==VK_SUCCESS);
 
             //viewportInfo.scissorCount = 1;
@@ -692,6 +701,11 @@ namespace VK
             viewport.maxDepth = 1;
             vkCmdSetViewport(commandBuffer,0,1,&viewport);
         }
+
+        VkRect2D scissor = {};
+        scissor.extent.width = getWidth(WIDTH,caps);
+        scissor.extent.height = getWidth(HEIGHT,caps);
+        vkCmdSetScissor(commandBuffer,0,1,&scissor);
 
         vkCmdDraw(commandBuffer,3,1,0,0);
 
