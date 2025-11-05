@@ -471,11 +471,6 @@ namespace VK
             assInfo.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
             assInfo.primitiveRestartEnable = VK_FALSE;
             pipelineInfo.pInputAssemblyState  = &assInfo;
-            VkPipelineCacheCreateInfo cacheInfo = {};
-            cacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-            VkPipelineCache pipelineCache;
-            assert(vkCreatePipelineCache(device,&cacheInfo,NULL,&pipelineCache)==VK_SUCCESS);
-            assert(vkCreateGraphicsPipelines(device,pipelineCache,1,&pipelineInfo,NULL,&pipeline)==VK_SUCCESS);
 
             VkViewport viewport = {};
             viewport.x = 0;
@@ -488,17 +483,37 @@ namespace VK
             viewportInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
             viewportInfo.viewportCount = 1;
             viewportInfo.pViewports = &viewport;
+            pipelineInfo.pViewportState = &viewportInfo;
 
             VkPipelineRasterizationStateCreateInfo rasterInfo = {};
             rasterInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
             rasterInfo.polygonMode = VK_POLYGON_MODE_FILL;
             rasterInfo.lineWidth = 1.0f;
-            rasterInfo.cullMode = VK_CULL_MODE_NONE;
+            rasterInfo.cullMode = VK_CULL_MODE_BACK_BIT;//VK_CULL_MODE_NONE;
             rasterInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+            pipelineInfo.pRasterizationState = &rasterInfo;
 
             VkPipelineColorBlendAttachmentState colorBlendInfo = {};
             colorBlendInfo.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
+            VkPipelineColorBlendStateCreateInfo colorBlending = {};
+            colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+            colorBlending.logicOpEnable = VK_FALSE;
+            colorBlending.logicOp = VK_LOGIC_OP_COPY;
+            colorBlending.attachmentCount = 1;
+            colorBlending.pAttachments = &colorBlendInfo;
+            colorBlending.blendConstants[0] = 0.0f;
+            colorBlending.blendConstants[1] = 0.0f;
+            colorBlending.blendConstants[2] = 0.0f;
+            colorBlending.blendConstants[3] = 0.0f;            
+            pipelineInfo.pColorBlendState = &colorBlending;
+
+            VkPipelineCacheCreateInfo cacheInfo = {};
+            cacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+            VkPipelineCache pipelineCache;
+            assert(vkCreatePipelineCache(device,&cacheInfo,NULL,&pipelineCache)==VK_SUCCESS);
+
+            assert(vkCreateGraphicsPipelines(device,pipelineCache,1,&pipelineInfo,NULL,&pipeline)==VK_SUCCESS);
 
             //viewportInfo.scissorCount = 1;
 
@@ -669,8 +684,8 @@ namespace VK
         if(0) // this crashes pipeline!!!
         {
             VkViewport viewport = {};
-            viewport.height = HEIGHT;
-            viewport.width = WIDTH;
+            viewport.height = getHeight(HEIGHT,caps);
+            viewport.width = getWidth(WIDTH,caps);
             viewport.x = 0;
             viewport.y = 0;
             viewport.minDepth = 0;
