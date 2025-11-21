@@ -7,14 +7,22 @@
 
 #include "vulkan.hpp"
 
-void DrawTriangle()
+
+int foo() {
+    return 3;
+}
+
+void DrawTriangle(VK::MyVulkan *v)
 {
     // char * vertexShader = "";
     char * pixelShader = "out vec3 color; main(){ color = vec3(1.,0,1.); }";
     VK::CompileShader(pixelShader);
     VK::BindShader();
-    VK::DrawCall();
-    VK::Display();
+    //VK::DrawCall();
+    VK::Display(v);
+
+    foo();
+
 }
 
 void WaitForExit()
@@ -24,9 +32,12 @@ void WaitForExit()
 
 int main( int argc, char **argv )
 {
-    VK::Init();
-    DrawTriangle();
+    VK::MyVulkan v;
+
+
+    VK::Init(&v);
+    DrawTriangle(&v);
     WaitForExit();
-    VK::Shutdown();
+    VK::Shutdown(&v);
     return 0;
 }
