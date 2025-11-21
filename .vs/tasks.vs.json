@@ -1,0 +1,19 @@
+{
+  "version": "0.2.1",
+  "tasks": [
+    {
+      "taskLabel": "Build this shit",
+      "appliesTo": "*", // available from anywhere, except root folder
+      "type": "launch",
+      "contextType": "build", // add to right click menu in the Solution Explorer as "build"
+      "command": "build.bat"
+    },
+    {
+      "taskLabel": "Build this shit",
+      "appliesTo": "/", // Available in root folder in Solution Explorer
+      "type": "launch",
+      "contextType": "build", // add to right click menu in the Solution Explorer as "build"
+      "command": "build.bat"
+    }
+  ]
+}

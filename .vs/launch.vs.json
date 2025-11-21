@@ -1,0 +1,15 @@
+{
+  "version": "0.2.1",
+  "defaults": {},
+  "configurations": [
+    {
+      // there is no prelaunchTask :/
+      "type": "native",
+      "project": "exe\\main.exe", // this must be executable file
+      "projectTarget": "",
+      "name": "launch main.exe",
+      "debugType": "native",
+      "noDebug": false
+    }
+  ]
+}
