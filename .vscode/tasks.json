@@ -1,0 +1,19 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			// "type": "",
+			"label": "My-build-bat",
+			"command": "build.bat",
+			"targets": [
+				//"[N/A - Select Kit]"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": [],
+			"detail": "CMake template build task"
+		}
+	]
+}
