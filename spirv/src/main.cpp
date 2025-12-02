@@ -126,11 +126,10 @@ bool string_equals( char * a, char * b )
 
 bool find_16( Reader r, int startIndex, int16_t wanted, int * findIndex )
 {
-    r.isOK = true; // just in case 
-
     for( int i = startIndex; i < r.count; i++ )
     {
-        r.index = startIndex;
+        r.isOK = true;
+        r.index = i;
         int16_t value = reader_read16( &r );
 
         if( !r.isOK ) // invalid read at the end of content
@@ -210,16 +209,31 @@ int main( int argc, char **argv )
     codeToFind.push_back((int32_t) SpvOpDecorate); //  "OpDecorate");// %outColor Location 0
     codeToFind.push_back((int32_t) SpvOpDecorate); //  "OpDecorate");// %fragColor Location 1
 
+    struct SpirvToken {
+        SpvOp op;
+        int bits;
+        int index;
+        char *name;
+    };
+
+    std::vector<SpirvToken> foundCode;
+
     printf("Can I find the code?\n");
-    printf("--------------------\n");
     {
+        int startIndex = r.index;
+
+        printf("starting at index %d\n", startIndex);
+        printf("--------------------\n");
+
         std::vector<int32_t> foundOffsets;
 
-        int startIndex = r.index;
 
         for(int i = 0; i < codeToFind.size(); i++ )
         {
             int32_t op = codeToFind[ i ];
+
+            // op is 16 bit
+            assert( op < 65000 ); 
 
             Reader rr = r;
             rr.isOK = true;
@@ -227,32 +241,80 @@ int main( int argc, char **argv )
             // try other alignment if first one doesn't match
 
             int findIndex = 0;
-            if( find_16( rr, startIndex, op, &findIndex ))
+            bool foundSomething = false;
+
+            for(int offset = 0; offset < sizeof(int16_t); offset++)
             {
-                foundOffsets.push_back(findIndex);
-                startIndex = findIndex + sizeof( uint16_t );
+                if( find_16( rr, startIndex + offset, op, &findIndex ))
+                {
+                    foundOffsets.push_back(findIndex);
+                    startIndex = findIndex + sizeof( uint16_t );
+
+                    SpirvToken found = {};
+                    found.op = (SpvOp) op;
+                    found.bits = 16;
+                    found.name = (char*) SpvOpToString( (SpvOp) op );
+                    found.index = findIndex;
+                    foundCode.push_back( found );
+
+                    foundSomething = true;
+
+                    if( foundSomething ) // find just first one
+                    {
+                        break;
+                    }
+                }
             }
-            else if( find_16( rr, startIndex + 1, op, &findIndex ))
+
+            if( foundSomething ) // find just first one
             {
-                foundOffsets.push_back(findIndex);
-                startIndex = findIndex + sizeof( uint16_t );
+                continue;
             }
-            else
+
+            /*
+            for(int offset = 0; offset < sizeof(int32_t); offset++)
+            {
+                if( find_32( rr, startIndex + offset, op, &findIndex ))
+                {
+                    foundOffsets.push_back(findIndex);
+                    startIndex = findIndex + sizeof( uint32_t );
+
+                    SpirvToken found = {};
+                    found.op = (SpvOp) op;
+                    found.bits = 32;
+                    found.name = (char*) SpvOpToString( (SpvOp) op );
+                    found.index = findIndex;
+                    foundCode.push_back( found );
+
+                    foundSomething = true;
+
+                    if( foundSomething ) // find just first one
+                    {
+                        break;
+                    }
+                }
+            }
+            */
+
+            // find whole code or do not continue
+            if( !foundSomething )
             {
                 break;
             }
         }
 
-        if(codeToFind.size() == foundOffsets.size())
+        //if(codeToFind.size() == foundOffsets.size())
         {
-            printf("FOUND THE CODE!!!\n");
-            for(auto i: foundOffsets)
+            //printf("FOUND THE CODE!!!\n");
+            for(int i = 0; i < foundCode.size(); i++ )
             {
-                printf("%d",i);
+                SpirvToken found = foundCode[ i ];
+                printf("%s // line %d\n", found.name, found.index + 1);
             }
-
         }
     }
+
+    std::vector<SpirvToken> validInstructions;
 
     printf("Search for negative space\n");
     printf("-----------------\n");
@@ -260,13 +322,6 @@ int main( int argc, char **argv )
     {
         int startIndex = r.index;
 
-        struct ValidInfo {
-            SpvOp op;
-            int bits;
-            int index;
-            char *name;
-        };
-        std::vector<ValidInfo> validInstructions;
 
         printf("Visually:\n");
         for( int i = startIndex; i < r.count; i++ )
@@ -282,7 +337,7 @@ int main( int argc, char **argv )
             bool isMiss32 = string_equals( str32, "Unknown" ) || string_equals( str32, "OpNop" );
             if(!isMiss16)
             {
-                ValidInfo info = {};
+                SpirvToken info = {};
                 info.op = op16;
                 info.index = i;
                 info.bits = 16;
@@ -291,7 +346,7 @@ int main( int argc, char **argv )
             }
             if(!isMiss32)
             {
-                ValidInfo info = {};
+                SpirvToken info = {};
                 info.op = op32;
                 info.index = i;
                 info.bits = 32;
@@ -305,7 +360,7 @@ int main( int argc, char **argv )
         int previouslyPrintedIndex = -1;
         for(int i = 0; i < validInstructions.size(); i++ )
         {
-            ValidInfo info = validInstructions[ i ];
+            SpirvToken info = validInstructions[ i ];
             if(info.index == previouslyPrintedIndex) {
                 printf(", ");
             } else if( i > 0 ) {
