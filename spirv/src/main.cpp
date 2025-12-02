@@ -147,35 +147,36 @@ bool find_16( Reader r, int startIndex, int16_t wanted, int * findIndex )
     return false;
 }
 
-int main( int argc, char **argv )
+
+void parse_header( Reader * r )
 {
-    printf( "Hello" );
-    
-    char* filePath = "frag.spv";
-    File::file_content f = File::Read( filePath, NULL, 0 );
-    assert(f.isOK);
+    printf( "Parsing header\n");
 
-    Reader r = reader_from_file( f );
-
-    int32_t magic = reader_read32( &r );
+    int32_t magic = reader_read32( r );
     assert( magic == 0x07230203 );
 
-    int32_t version = reader_read32( &r );
+    int32_t version = reader_read32( r );
 
-    int32_t generator = reader_read32( &r );
-    int32_t bound = reader_read8( &r );
-    int32_t schema = reader_read8( &r );
+    int32_t generator = reader_read32( r );
+    int32_t bound = reader_read8( r );
+    int32_t schema = reader_read8( r );
 
     //SpvOpCapability()
 
-    assert( r.isOK );
+    assert( r->isOK );
 
     printf( "version = 0x%x\n", version );
     printf( "generator = 0x%x\n", generator );
     printf( "bound = %d\n", bound );
     printf( "schema = %d\n", schema );
 
-    printf( "at 0x%x / %d\n", r.index, r.index );
+    printf( "at 0x%x / %d\n", r->index, r->index );
+
+    printf( "\n\n" );
+}
+
+void find_all_places_where_instructions_are( Reader r )
+{
     find_integer( r, r.index, SpvOpCapability, "OpCapability" );
     find_integer( r, r.index, SpvOpExtInstImport, "OpExtInstImport" );
     find_integer( r, r.index, SpvOpCapability, "OpCapability");// Shader
@@ -191,33 +192,18 @@ int main( int argc, char **argv )
     find_integer( r, r.index, SpvOpName, "OpName");// %fragColor "fragColor"
     find_integer( r, r.index, SpvOpDecorate, "OpDecorate");// %outColor Location 0
     find_integer( r, r.index, SpvOpDecorate, "OpDecorate");// %fragColor Location 1
+}
 
-    std::vector<int32_t> codeToFind;
-    codeToFind.push_back((int32_t) SpvOpCapability); //  "OpCapability" );
-    codeToFind.push_back((int32_t) SpvOpExtInstImport); //  "OpExtInstImport" );
-    codeToFind.push_back((int32_t) SpvOpCapability); //  "OpCapability");// Shader
-    codeToFind.push_back((int32_t) SpvOpExtInstImport); //  "OpExtInstImport");// "GLSL.std.450"
-    codeToFind.push_back((int32_t) SpvOpMemoryModel); //  "OpMemoryModel");// Logical GLSL450
-    codeToFind.push_back((int32_t) SpvOpEntryPoint); //  "OpEntryPoint");// Fragment %main "main" %outColor %fragColor
-    codeToFind.push_back((int32_t) SpvOpExecutionMode); //  "OpExecutionMode");// %main OriginUpperLeft
-    codeToFind.push_back((int32_t) SpvOpSource); //  "OpSource");// GLSL 450
-    codeToFind.push_back((int32_t) SpvOpSourceExtension); //  "OpSourceExtension");// "GL_GOOGLE_cpp_style_line_directive"
-    codeToFind.push_back((int32_t) SpvOpSourceExtension); //  "OpSourceExtension");// "GL_GOOGLE_include_directive"
-    codeToFind.push_back((int32_t) SpvOpName); //  "OpName");// %main "main"
-    codeToFind.push_back((int32_t) SpvOpName); //  "OpName");// %outColor "outColor"
-    codeToFind.push_back((int32_t) SpvOpName); //  "OpName");// %fragColor "fragColor"
-    codeToFind.push_back((int32_t) SpvOpDecorate); //  "OpDecorate");// %outColor Location 0
-    codeToFind.push_back((int32_t) SpvOpDecorate); //  "OpDecorate");// %fragColor Location 1
+struct SpirvToken {
+    SpvOp op;
+    int bits;
+    int index;
+    char *name;
+};
 
-    struct SpirvToken {
-        SpvOp op;
-        int bits;
-        int index;
-        char *name;
-    };
 
-    std::vector<SpirvToken> foundCode;
-
+bool find_code_sequence( Reader r, std::vector<int32_t> * codeToFind, std::vector<SpirvToken> * foundCode /* modified */ )
+{
     printf("Can I find the code?\n");
     {
         int startIndex = r.index;
@@ -228,9 +214,9 @@ int main( int argc, char **argv )
         std::vector<int32_t> foundOffsets;
 
 
-        for(int i = 0; i < codeToFind.size(); i++ )
+        for(int i = 0; i < codeToFind->size(); i++ )
         {
-            int32_t op = codeToFind[ i ];
+            int32_t op = (*codeToFind)[ i ];
 
             // op is 16 bit
             assert( op < 65000 ); 
@@ -255,7 +241,7 @@ int main( int argc, char **argv )
                     found.bits = 16;
                     found.name = (char*) SpvOpToString( (SpvOp) op );
                     found.index = findIndex;
-                    foundCode.push_back( found );
+                    foundCode->push_back( found );
 
                     foundSomething = true;
 
@@ -306,75 +292,22 @@ int main( int argc, char **argv )
         //if(codeToFind.size() == foundOffsets.size())
         {
             //printf("FOUND THE CODE!!!\n");
-            for(int i = 0; i < foundCode.size(); i++ )
+            for(int i = 0; i < foundCode->size(); i++ )
             {
-                SpirvToken found = foundCode[ i ];
+                SpirvToken found = (*foundCode)[ i ];
                 printf("%s // line %d\n", found.name, found.index + 1);
             }
         }
     }
 
-    std::vector<SpirvToken> validInstructions;
+    return codeToFind->size() == foundCode->size();
+}
 
-    printf("Search for negative space\n");
-    printf("-----------------\n");
-    printf("[ ] code isn't there 16 or 32bit; [+] valid instruction ");
-    {
-        int startIndex = r.index;
-
-
-        printf("Visually:\n");
-        for( int i = startIndex; i < r.count; i++ )
-        {
-            Reader rr = r;
-            rr.isOK = true;
-            rr.index = i;
-            SpvOp op16 = (SpvOp) reader_read16( &rr );
-            SpvOp op32 = (SpvOp) reader_read16( &rr );
-            char * str16 = (char*) SpvOpToString( op16 );
-            char * str32 = (char*) SpvOpToString( op32 );
-            bool isMiss16 = string_equals( str16, "Unknown" ) || string_equals( str16, "OpNop" );
-            bool isMiss32 = string_equals( str32, "Unknown" ) || string_equals( str32, "OpNop" );
-            if(!isMiss16)
-            {
-                SpirvToken info = {};
-                info.op = op16;
-                info.index = i;
-                info.bits = 16;
-                info.name = (char*) SpvOpToString(op16);
-                validInstructions.push_back(info);
-            }
-            if(!isMiss32)
-            {
-                SpirvToken info = {};
-                info.op = op32;
-                info.index = i;
-                info.bits = 32;
-                info.name = (char*) SpvOpToString(op32);
-                validInstructions.push_back(info);
-            }
-            printf("%c", ( isMiss16 && isMiss32 )? ' ': '+');
-        }
-        printf("List of valid instructions (too bad we don't have :hover in text mode)\n");
-        printf("Lines go from 1\n");
-        int previouslyPrintedIndex = -1;
-        for(int i = 0; i < validInstructions.size(); i++ )
-        {
-            SpirvToken info = validInstructions[ i ];
-            if(info.index == previouslyPrintedIndex) {
-                printf(", ");
-            } else if( i > 0 ) {
-                printf("\n");
-                printf( "%d: ", info.index + 1); // lines go from 1 as in text editor
-            } else if( i == 0 ) {
-                printf( "%d: ", info.index + 1); // lines go from 1 as in text editor
-            }
-            printf( "%s (%d)", info.name, info.bits);
-        }
-        printf("\n");
-    }
-    printf("\n");
-
+void print_instructions_from_different_offsets( Reader r )
+{
+    printf( "\n\n");
+    printf( "Printing instructions at different offsets\n");
+    printf( "------------------------------------------\n");
     // 32 bit, offset 16 (29%)
     // 16 bit, offset 14 (31%) 16 (31%)
     //
@@ -437,9 +370,114 @@ int main( int argc, char **argv )
         }
         printf( "===== %f %% of correct instructions \n", (float) (count-misses) / count * 100.0f );
     }
+}
 
-    // SpvOp op = (SpvOp) 69;
-    // printf("%s",SpvOpToString(op));
+void find_valid_instructions( Reader r, std::vector<SpirvToken> * validInstructions )
+{
+    printf("Search for negative space\n");
+    printf("-----------------\n");
+    printf("[ ] code isn't there 16 or 32bit; [+] valid instruction ");
+    {
+        int startIndex = r.index;
+
+
+        printf("Visually:\n");
+        for( int i = startIndex; i < r.count; i++ )
+        {
+            Reader rr = r;
+            rr.isOK = true;
+            rr.index = i;
+            SpvOp op16 = (SpvOp) reader_read16( &rr );
+            SpvOp op32 = (SpvOp) reader_read16( &rr );
+            char * str16 = (char*) SpvOpToString( op16 );
+            char * str32 = (char*) SpvOpToString( op32 );
+            bool isMiss16 = string_equals( str16, "Unknown" ) || string_equals( str16, "OpNop" );
+            bool isMiss32 = string_equals( str32, "Unknown" ) || string_equals( str32, "OpNop" );
+            if(!isMiss16)
+            {
+                SpirvToken info = {};
+                info.op = op16;
+                info.index = i;
+                info.bits = 16;
+                info.name = (char*) SpvOpToString(op16);
+                validInstructions->push_back(info);
+            }
+            if(!isMiss32)
+            {
+                SpirvToken info = {};
+                info.op = op32;
+                info.index = i;
+                info.bits = 32;
+                info.name = (char*) SpvOpToString(op32);
+                validInstructions->push_back(info);
+            }
+            printf("%c", ( isMiss16 && isMiss32 )? ' ': '+');
+        }
+
+        printf("List of valid instructions (too bad we don't have :hover in text mode)\n");
+        printf("Lines go from 1\n");
+        int previouslyPrintedIndex = -1;
+        char * INDENT = "   ";
+        for(int i = 0; i < validInstructions->size(); i++ )
+        {
+            SpirvToken info = (*validInstructions)[ i ];
+            if(info.index == previouslyPrintedIndex) {
+                printf(", ");
+            } else if( i > 0 ) {
+                printf("\n");
+                printf( INDENT );
+                printf( "%d: ", info.index + 1); // lines go from 1 as in text editor
+            } else if( i == 0 ) {
+                printf( INDENT );
+                printf( "%d: ", info.index + 1); // lines go from 1 as in text editor
+            }
+            printf( "%s (%d)", info.name, info.bits);
+            previouslyPrintedIndex = info.index;
+        }
+        printf("\n");
+    }
+    printf("\n");    
+}
+
+int main( int argc, char **argv )
+{
+    char* filePath = "frag.spv";
+    File::file_content f = File::Read( filePath, NULL, 0 );
+    assert(f.isOK);
+    Reader r = reader_from_file( f );
+
+    parse_header( &r );
+
+    find_all_places_where_instructions_are( r );
+
+    std::vector<int32_t> codeToFind;
+    codeToFind.push_back((int32_t) SpvOpCapability); //  "OpCapability" );
+    codeToFind.push_back((int32_t) SpvOpExtInstImport); //  "OpExtInstImport" );
+    codeToFind.push_back((int32_t) SpvOpCapability); //  "OpCapability");// Shader
+    codeToFind.push_back((int32_t) SpvOpExtInstImport); //  "OpExtInstImport");// "GLSL.std.450"
+    codeToFind.push_back((int32_t) SpvOpMemoryModel); //  "OpMemoryModel");// Logical GLSL450
+    codeToFind.push_back((int32_t) SpvOpEntryPoint); //  "OpEntryPoint");// Fragment %main "main" %outColor %fragColor
+    codeToFind.push_back((int32_t) SpvOpExecutionMode); //  "OpExecutionMode");// %main OriginUpperLeft
+    codeToFind.push_back((int32_t) SpvOpSource); //  "OpSource");// GLSL 450
+    codeToFind.push_back((int32_t) SpvOpSourceExtension); //  "OpSourceExtension");// "GL_GOOGLE_cpp_style_line_directive"
+    codeToFind.push_back((int32_t) SpvOpSourceExtension); //  "OpSourceExtension");// "GL_GOOGLE_include_directive"
+    codeToFind.push_back((int32_t) SpvOpName); //  "OpName");// %main "main"
+    codeToFind.push_back((int32_t) SpvOpName); //  "OpName");// %outColor "outColor"
+    codeToFind.push_back((int32_t) SpvOpName); //  "OpName");// %fragColor "fragColor"
+    codeToFind.push_back((int32_t) SpvOpDecorate); //  "OpDecorate");// %outColor Location 0
+    codeToFind.push_back((int32_t) SpvOpDecorate); //  "OpDecorate");// %fragColor Location 1
+
+    std::vector<SpirvToken> foundCode;
+
+    find_code_sequence( r, &codeToFind, &foundCode );
+
+
+    std::vector<SpirvToken> validInstructions;
+
+    find_valid_instructions( r, &validInstructions );
+
+    print_instructions_from_different_offsets( r );
+
     return 0;
 }
 
