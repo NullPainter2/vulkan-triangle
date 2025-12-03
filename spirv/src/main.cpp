@@ -148,7 +148,7 @@ bool find_16( Reader r, int startIndex, int16_t wanted, int * findIndex )
 }
 
 
-void parse_header( Reader * r )
+void parse_header( Reader * r, int *maximalId )
 {
     printf( "Parsing header\n");
 
@@ -158,21 +158,28 @@ void parse_header( Reader * r )
     int32_t version = reader_read32( r );
 
     int32_t generator = reader_read32( r );
-    int32_t bound = reader_read8( r );
-    int32_t schema = reader_read8( r );
+    int32_t bound = reader_read32( r );
+    int32_t schema = reader_read32( r ); 
 
     //SpvOpCapability()
 
     assert( r->isOK );
 
-    printf( "version = 0x%x\n", version );
+    int major = (version >> 16)&0xff;
+    int minor = (version >> 8)&0xff;
+    printf( "version = %d.%d 0x%x\n", major, minor, version );
     printf( "generator = 0x%x\n", generator );
-    printf( "bound = %d\n", bound );
+    printf( "bound = %d (maximal id)\n", bound );
     printf( "schema = %d\n", schema );
 
     printf( "at 0x%x / %d\n", r->index, r->index );
 
     printf( "\n\n" );
+
+    assert( r->isOK );
+
+    assert( bound > 0 );
+    *maximalId = bound;
 }
 
 void find_all_places_where_instructions_are( Reader r )
@@ -341,7 +348,18 @@ void print_instructions_from_different_offsets( Reader r )
                     misses++;
                 }
                 count++;
-                printf( " %s", isMiss? "-" : str );
+                if(isMiss)
+                {
+                    // they have meaning, they are the sizes, offsets
+                    if( op == 0 ) printf( " 0" );
+                    else if( op < 30 ) printf( " %d", op );
+                    else printf( " -" );
+                }
+                else
+                {
+                    printf( " %s", isMiss? "-" : str );                    
+                }
+                // printf( " %s", isMiss? "-" : str );                    
             }
         }
         printf( "\n===== %f %% of correct instructions \n", (float) (count-misses) / count * 100.0f );
@@ -537,97 +555,121 @@ int main( int argc, char **argv )
     assert(f.isOK);
     Reader r = reader_from_file( f );
 
-    parse_header( &r );
-
-    find_all_places_where_instructions_are( r );
-
-    std::vector<SpirvToken> codeToFind;
-    add_spirv_token(&codeToFind, SpvOpCapability); //  "OpCapability" );
-    add_spirv_token(&codeToFind, SpvOpExtInstImport); //  "OpExtInstImport" );
-    add_spirv_token(&codeToFind, SpvOpCapability); //  "OpCapability");// Shader
-    add_spirv_token(&codeToFind, SpvOpExtInstImport); //  "OpExtInstImport");// "GLSL.std.450"
-    add_spirv_token(&codeToFind, SpvOpMemoryModel); //  "OpMemoryModel");// Logical GLSL450
-    add_spirv_token(&codeToFind, SpvOpEntryPoint); //  "OpEntryPoint");// Fragment %main "main" %outColor %fragColor
-    add_spirv_token(&codeToFind, SpvOpExecutionMode); //  "OpExecutionMode");// %main OriginUpperLeft
-    add_spirv_token(&codeToFind, SpvOpSource); //  "OpSource");// GLSL 450
-    add_spirv_token(&codeToFind, SpvOpSourceExtension); //  "OpSourceExtension");// "GL_GOOGLE_cpp_style_line_directive"
-    add_spirv_token(&codeToFind, SpvOpSourceExtension); //  "OpSourceExtension");// "GL_GOOGLE_include_directive"
-    add_spirv_token(&codeToFind, SpvOpName); //  "OpName");// %main "main"
-    add_spirv_token(&codeToFind, SpvOpName); //  "OpName");// %outColor "outColor"
-    add_spirv_token(&codeToFind, SpvOpName); //  "OpName");// %fragColor "fragColor"
-    add_spirv_token(&codeToFind, SpvOpDecorate); //  "OpDecorate");// %outColor Location 0
-    add_spirv_token(&codeToFind, SpvOpDecorate); //  "OpDecorate");// %fragColor Location 1
+    int maximalId = 0;
+    parse_header( &r, &maximalId );
 
 
-
-    std::vector<SpirvToken> foundCode;
-
-    find_code_sequence( r, &codeToFind, &foundCode );
-
-
-    std::vector<SpirvToken> validInstructions;
-
-    find_valid_instructions( r, &validInstructions );
-
-    search_for_code_sequence_inside_another( codeToFind, validInstructions );
-
+    while( true )
     {
-        std::vector<SpirvToken> v;
-        add_spirv_token(&v, SpvOpTypeVoid); //        %void = OpTypeVoid
-        add_spirv_token(&v, SpvOpTypeFunction); //           %3 = OpTypeFunction %void
-        add_spirv_token(&v, SpvOpTypeFloat); //       %float = OpTypeFloat 32
-        add_spirv_token(&v, SpvOpTypeVector); //     %v4float = OpTypeVector %float 4
-        add_spirv_token(&v, SpvOpTypePointer); // %_ptr_Output_v4float = OpTypePointer Output %v4float
-        add_spirv_token(&v, SpvOpVariable); //    %outColor = OpVariable %_ptr_Output_v4float Output
-        add_spirv_token(&v, SpvOpTypePointer); // %_ptr_Input_v4float = OpTypePointer Input %v4float
-        add_spirv_token(&v, SpvOpVariable); //   %fragColor = OpVariable %_ptr_Input_v4float Input
-        add_spirv_token(&v, SpvOpTypeInt); //        %uint = OpTypeInt 32 0
-        add_spirv_token(&v, SpvOpConstant); //      %uint_0 = OpConstant %uint 0
-        add_spirv_token(&v, SpvOpTypePointer); // %_ptr_Input_float = OpTypePointer Input %float
-        add_spirv_token(&v, SpvOpConstant); //      %uint_1 = OpConstant %uint 1
-        add_spirv_token(&v, SpvOpConstant); //      %uint_2 = OpConstant %uint 2
-        add_spirv_token(&v, SpvOpConstant); //      %uint_3 = OpConstant %uint 3
-        add_spirv_token(&v, SpvOpFunction); //        %main = OpFunction %void None %3
-        add_spirv_token(&v, SpvOpLabel); //           %5 = OpLabel
-        add_spirv_token(&v, SpvOpAccessChain); //          %15 = OpAccessChain %_ptr_Input_float %fragColor %uint_0
-        add_spirv_token(&v, SpvOpLoad); //          %16 = OpLoad %float %15
-        add_spirv_token(&v, SpvOpAccessChain); //          %18 = OpAccessChain %_ptr_Input_float %fragColor %uint_1
-        add_spirv_token(&v, SpvOpLoad); //          %19 = OpLoad %float %18
-        add_spirv_token(&v, SpvOpAccessChain); //          %21 = OpAccessChain %_ptr_Input_float %fragColor %uint_2
-        add_spirv_token(&v, SpvOpLoad); //          %22 = OpLoad %float %21
-        add_spirv_token(&v, SpvOpAccessChain); //          %24 = OpAccessChain %_ptr_Input_float %fragColor %uint_3
-        add_spirv_token(&v, SpvOpLoad); //          %25 = OpLoad %float %24
-        add_spirv_token(&v, SpvOpCompositeConstruct); //          %26 = OpCompositeConstruct %v4float %16 %19 %22 %25
-        add_spirv_token(&v, SpvOpStore);// %outColor %26
-        add_spirv_token(&v, SpvOpReturn);//
-        add_spirv_token(&v, SpvOpFunctionEnd);//
+        if(!r.isOK) break;
+        SpvOp op = (SpvOp) reader_read16( &r );
+        int countWords = reader_read16( &r );
+        bool hasResult = false;
+        bool hasType = false;
+        //int32_t opWord = reader_read32( &r );
+        //SpvOp op = (SpvOp)(opWord & (1<<16-1));
+        //SpvOp count = (opWord >> 16) & (1<<16-1);
+        SpvHasResultAndType(op,&hasResult,&hasType);
+        printf("%s %d %s %s\n", SpvOpToString(op),countWords,hasResult? " result":"",hasType?" type":"");
 
-
-        search_for_code_sequence_inside_another( v, validInstructions );
+        r.index += ( countWords - 1 ) * 4; // words to skip
     }
 
-    printf( "\n\n" );
-    printf( "these weren't found in sequence ...\n" );
+    // type, result, operand
+
+    if( false )
     {
-        std::vector<SpirvToken> v;
-        add_spirv_token(&v, SpvOpLabel); //           %5 = OpLabel
-        add_spirv_token(&v, SpvOpAccessChain); //          %15 = OpAccessChain %_ptr_Input_float %fragColor %uint_0
-        add_spirv_token(&v, SpvOpLoad); //          %16 = OpLoad %float %15
-        add_spirv_token(&v, SpvOpAccessChain); //          %18 = OpAccessChain %_ptr_Input_float %fragColor %uint_1
-        add_spirv_token(&v, SpvOpLoad); //          %19 = OpLoad %float %18
-        add_spirv_token(&v, SpvOpAccessChain); //          %21 = OpAccessChain %_ptr_Input_float %fragColor %uint_2
-        add_spirv_token(&v, SpvOpLoad); //          %22 = OpLoad %float %21
-        add_spirv_token(&v, SpvOpAccessChain); //          %24 = OpAccessChain %_ptr_Input_float %fragColor %uint_3
-        add_spirv_token(&v, SpvOpLoad); //          %25 = OpLoad %float %24
-        add_spirv_token(&v, SpvOpCompositeConstruct); //          %26 = OpCompositeConstruct %v4float %16 %19 %22 %25
-        add_spirv_token(&v, SpvOpStore);// %outColor %26
-        add_spirv_token(&v, SpvOpReturn);//
-        add_spirv_token(&v, SpvOpFunctionEnd);//
 
-        search_for_code_sequence_inside_another( v, validInstructions );
+        find_all_places_where_instructions_are( r );
+
+        std::vector<SpirvToken> codeToFind;
+        add_spirv_token(&codeToFind, SpvOpCapability); //  "OpCapability" );
+        add_spirv_token(&codeToFind, SpvOpExtInstImport); //  "OpExtInstImport" );
+        add_spirv_token(&codeToFind, SpvOpCapability); //  "OpCapability");// Shader
+        add_spirv_token(&codeToFind, SpvOpExtInstImport); //  "OpExtInstImport");// "GLSL.std.450"
+        add_spirv_token(&codeToFind, SpvOpMemoryModel); //  "OpMemoryModel");// Logical GLSL450
+        add_spirv_token(&codeToFind, SpvOpEntryPoint); //  "OpEntryPoint");// Fragment %main "main" %outColor %fragColor
+        add_spirv_token(&codeToFind, SpvOpExecutionMode); //  "OpExecutionMode");// %main OriginUpperLeft
+        add_spirv_token(&codeToFind, SpvOpSource); //  "OpSource");// GLSL 450
+        add_spirv_token(&codeToFind, SpvOpSourceExtension); //  "OpSourceExtension");// "GL_GOOGLE_cpp_style_line_directive"
+        add_spirv_token(&codeToFind, SpvOpSourceExtension); //  "OpSourceExtension");// "GL_GOOGLE_include_directive"
+        add_spirv_token(&codeToFind, SpvOpName); //  "OpName");// %main "main"
+        add_spirv_token(&codeToFind, SpvOpName); //  "OpName");// %outColor "outColor"
+        add_spirv_token(&codeToFind, SpvOpName); //  "OpName");// %fragColor "fragColor"
+        add_spirv_token(&codeToFind, SpvOpDecorate); //  "OpDecorate");// %outColor Location 0
+        add_spirv_token(&codeToFind, SpvOpDecorate); //  "OpDecorate");// %fragColor Location 1
+
+
+
+        std::vector<SpirvToken> foundCode;
+
+        find_code_sequence( r, &codeToFind, &foundCode );
+
+
+        std::vector<SpirvToken> validInstructions;
+
+        find_valid_instructions( r, &validInstructions );
+
+        search_for_code_sequence_inside_another( codeToFind, validInstructions );
+
+        {
+            std::vector<SpirvToken> v;
+            add_spirv_token(&v, SpvOpTypeVoid); //        %void = OpTypeVoid
+            add_spirv_token(&v, SpvOpTypeFunction); //           %3 = OpTypeFunction %void
+            add_spirv_token(&v, SpvOpTypeFloat); //       %float = OpTypeFloat 32
+            add_spirv_token(&v, SpvOpTypeVector); //     %v4float = OpTypeVector %float 4
+            add_spirv_token(&v, SpvOpTypePointer); // %_ptr_Output_v4float = OpTypePointer Output %v4float
+            add_spirv_token(&v, SpvOpVariable); //    %outColor = OpVariable %_ptr_Output_v4float Output
+            add_spirv_token(&v, SpvOpTypePointer); // %_ptr_Input_v4float = OpTypePointer Input %v4float
+            add_spirv_token(&v, SpvOpVariable); //   %fragColor = OpVariable %_ptr_Input_v4float Input
+            add_spirv_token(&v, SpvOpTypeInt); //        %uint = OpTypeInt 32 0
+            add_spirv_token(&v, SpvOpConstant); //      %uint_0 = OpConstant %uint 0
+            add_spirv_token(&v, SpvOpTypePointer); // %_ptr_Input_float = OpTypePointer Input %float
+            add_spirv_token(&v, SpvOpConstant); //      %uint_1 = OpConstant %uint 1
+            add_spirv_token(&v, SpvOpConstant); //      %uint_2 = OpConstant %uint 2
+            add_spirv_token(&v, SpvOpConstant); //      %uint_3 = OpConstant %uint 3
+            add_spirv_token(&v, SpvOpFunction); //        %main = OpFunction %void None %3
+            add_spirv_token(&v, SpvOpLabel); //           %5 = OpLabel
+            add_spirv_token(&v, SpvOpAccessChain); //          %15 = OpAccessChain %_ptr_Input_float %fragColor %uint_0
+            add_spirv_token(&v, SpvOpLoad); //          %16 = OpLoad %float %15
+            add_spirv_token(&v, SpvOpAccessChain); //          %18 = OpAccessChain %_ptr_Input_float %fragColor %uint_1
+            add_spirv_token(&v, SpvOpLoad); //          %19 = OpLoad %float %18
+            add_spirv_token(&v, SpvOpAccessChain); //          %21 = OpAccessChain %_ptr_Input_float %fragColor %uint_2
+            add_spirv_token(&v, SpvOpLoad); //          %22 = OpLoad %float %21
+            add_spirv_token(&v, SpvOpAccessChain); //          %24 = OpAccessChain %_ptr_Input_float %fragColor %uint_3
+            add_spirv_token(&v, SpvOpLoad); //          %25 = OpLoad %float %24
+            add_spirv_token(&v, SpvOpCompositeConstruct); //          %26 = OpCompositeConstruct %v4float %16 %19 %22 %25
+            add_spirv_token(&v, SpvOpStore);// %outColor %26
+            add_spirv_token(&v, SpvOpReturn);//
+            add_spirv_token(&v, SpvOpFunctionEnd);//
+
+
+            search_for_code_sequence_inside_another( v, validInstructions );
+        }
+
+        printf( "\n\n" );
+        printf( "these weren't found in sequence ...\n" );
+        {
+            std::vector<SpirvToken> v;
+            add_spirv_token(&v, SpvOpLabel); //           %5 = OpLabel
+            add_spirv_token(&v, SpvOpAccessChain); //          %15 = OpAccessChain %_ptr_Input_float %fragColor %uint_0
+            add_spirv_token(&v, SpvOpLoad); //          %16 = OpLoad %float %15
+            add_spirv_token(&v, SpvOpAccessChain); //          %18 = OpAccessChain %_ptr_Input_float %fragColor %uint_1
+            add_spirv_token(&v, SpvOpLoad); //          %19 = OpLoad %float %18
+            add_spirv_token(&v, SpvOpAccessChain); //          %21 = OpAccessChain %_ptr_Input_float %fragColor %uint_2
+            add_spirv_token(&v, SpvOpLoad); //          %22 = OpLoad %float %21
+            add_spirv_token(&v, SpvOpAccessChain); //          %24 = OpAccessChain %_ptr_Input_float %fragColor %uint_3
+            add_spirv_token(&v, SpvOpLoad); //          %25 = OpLoad %float %24
+            add_spirv_token(&v, SpvOpCompositeConstruct); //          %26 = OpCompositeConstruct %v4float %16 %19 %22 %25
+            add_spirv_token(&v, SpvOpStore);// %outColor %26
+            add_spirv_token(&v, SpvOpReturn);//
+            add_spirv_token(&v, SpvOpFunctionEnd);//
+
+            search_for_code_sequence_inside_another( v, validInstructions );
+        }
+
+        print_instructions_from_different_offsets( r );
     }
-
-    print_instructions_from_different_offsets( r );
 
     return 0;
 }
