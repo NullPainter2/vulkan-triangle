@@ -185,6 +185,35 @@ done:
     return str;
 }
 
+struct EntryPoint {
+    SpvExecutionModel execMode;
+    int32_t entryPointId;
+    char * functionName;
+    std::vector<int> ids;
+};
+
+struct Variable {
+    int id;
+    char * name;
+    SpvOp type;
+};
+
+Variable * get_or_add_to_vector( std::vector<Variable> &vec, int id )
+{
+    for( auto v : vec )
+    {
+        if( v.id == id )
+        {
+            return &v;
+        }
+    }
+
+    Variable empty = {};
+    vec.push_back( empty );
+    Variable * result = &( vec[ vec.size() - 1 ] );
+    return result;
+}
+
 int main( int argc, char **argv )
 {
     char* filePath = "frag.spv";
@@ -196,22 +225,11 @@ int main( int argc, char **argv )
     parse_header( &r, &maximalId );
 
 
-    struct EntryPoint {
-        SpvExecutionModel execMode;
-        int32_t entryPointId;
-        char * functionName;
-        std::vector<int> ids;
-    };
-
-    struct VariableName {
-        int id;
-        char * name;
-    };
 
     std::vector<EntryPoint> entryPoints;
     std::vector<int> functions;
     std::vector<int> ids;
-    std::vector<VariableName> varnames;
+    std::vector<Variable> variables;
 
     while( true )
     {
@@ -241,16 +259,16 @@ int main( int argc, char **argv )
         }
         else if( op == SpvOpTypeFunction )
         {
-            
+
         }
         else if( op == SpvOpName )
         {
-            VariableName varname = {};
-            varname.id = reader_read32( &r );
-            varname.name = reader_read_word_aligned_string( &r );
-            varnames.push_back(varname);
+            int id = reader_read32( &r );
+            Variable * var = get_or_add_to_vector( variables, id );
+            var->id = id;
+            var->name = reader_read_word_aligned_string( &r );
 
-            printf( " - %d -> %s \n", varname.id, varname.name );
+            printf( " - %d -> %s \n", var->id, var->name );
         }
         else if( op == SpvOpTypePointer )
         {
@@ -258,12 +276,13 @@ int main( int argc, char **argv )
         }
         else if( op == SpvOpVariable )
         {
+
             SpvOp resultType = (SpvOp) reader_read32( &r );
             int32_t id = reader_read32( &r );
             SpvStorageClass storageClass = (SpvStorageClass) reader_read32( &r );
 
             char * idName = "?";
-            for( auto v : varnames ) { if( v.id == id ){ idName = v.name; }}
+            for( auto v : variables ) { if( v.id == id ){ idName = v.name; }}
 
             printf( " - id = %d (%s) \n", id, idName );
             printf( " - type = %s \n", SpvOpToString( resultType ));
@@ -325,7 +344,7 @@ int main( int argc, char **argv )
         for( auto id : entryPoint.ids )
         {
             char * idName = "?";
-            for( auto v : varnames ) { if( v.id == id ){ idName = v.name; }}
+            for( auto v : variables ) { if( v.id == id ){ idName = v.name; }}
 
             printf( " %s (%d)", idName, id );
         }
