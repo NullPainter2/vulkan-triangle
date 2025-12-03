@@ -202,7 +202,12 @@ struct SpirvToken {
 };
 
 
-bool find_code_sequence( Reader r, std::vector<int32_t> * codeToFind, std::vector<SpirvToken> * foundCode /* modified */ )
+void print_spirv_token_vector( std::vector<SpirvToken> * v )
+{
+
+}
+
+bool find_code_sequence( Reader r, std::vector<SpirvToken> * codeToFind, std::vector<SpirvToken> * foundCode /* modified */ )
 {
     printf("Can I find the code?\n");
     {
@@ -216,7 +221,7 @@ bool find_code_sequence( Reader r, std::vector<int32_t> * codeToFind, std::vecto
 
         for(int i = 0; i < codeToFind->size(); i++ )
         {
-            int32_t op = (*codeToFind)[ i ];
+            int32_t op = (*codeToFind)[ i ].op;
 
             // op is 16 bit
             assert( op < 65000 ); 
@@ -387,21 +392,19 @@ void find_valid_instructions( Reader r, std::vector<SpirvToken> * validInstructi
             Reader rr = r;
             rr.isOK = true;
             rr.index = i;
+            SpvOp op8 = (SpvOp) reader_read8( &rr );
             SpvOp op16 = (SpvOp) reader_read16( &rr );
             SpvOp op32 = (SpvOp) reader_read16( &rr );
+            char * str8 = (char*) SpvOpToString( op8 );
             char * str16 = (char*) SpvOpToString( op16 );
             char * str32 = (char*) SpvOpToString( op32 );
+            bool isMiss8 = string_equals( str8, "Unknown" ) || string_equals( str8, "OpNop" );
             bool isMiss16 = string_equals( str16, "Unknown" ) || string_equals( str16, "OpNop" );
             bool isMiss32 = string_equals( str32, "Unknown" ) || string_equals( str32, "OpNop" );
-            if(!isMiss16)
-            {
-                SpirvToken info = {};
-                info.op = op16;
-                info.index = i;
-                info.bits = 16;
-                info.name = (char*) SpvOpToString(op16);
-                validInstructions->push_back(info);
-            }
+
+            // No need to add same instruction 2 or 3 times
+
+            // this might be too big instruction size??? THere will be zeroes anyway so it is ok
             if(!isMiss32)
             {
                 SpirvToken info = {};
@@ -411,7 +414,27 @@ void find_valid_instructions( Reader r, std::vector<SpirvToken> * validInstructi
                 info.name = (char*) SpvOpToString(op32);
                 validInstructions->push_back(info);
             }
-            printf("%c", ( isMiss16 && isMiss32 )? ' ': '+');
+            else if(!isMiss16)
+            {
+                SpirvToken info = {};
+                info.op = op16;
+                info.index = i;
+                info.bits = 16;
+                info.name = (char*) SpvOpToString(op16);
+                validInstructions->push_back(info);
+            }
+            // this probably isn't the size we want, add it just in case
+            else if(!isMiss8)
+            {
+                SpirvToken info = {};
+                info.op = op8;
+                info.index = i;
+                info.bits = 8;
+                info.name = (char*) SpvOpToString(op8);
+                validInstructions->push_back(info);
+            }
+
+            printf("%c", ( isMiss8 && isMiss16 && isMiss32 )? ' ': '+');
         }
 
         printf("List of valid instructions (too bad we don't have :hover in text mode)\n");
@@ -439,6 +462,74 @@ void find_valid_instructions( Reader r, std::vector<SpirvToken> * validInstructi
     printf("\n");    
 }
 
+void add_spirv_token( std::vector<SpirvToken> * v, SpvOp op )
+{
+    SpirvToken t = {};
+    t.op = op;
+    t.name = (char*) SpvOpToString( op );
+    t.index = v->size();
+    v->push_back(t);
+}
+
+void search_for_code_sequence_inside_another( std::vector<SpirvToken> & codeToFind, std::vector<SpirvToken> & validInstructions )
+{
+    printf( "\n\n" );
+    printf( "Searching code inside of valid instructions\n" );
+    printf( "-------------------------------------------\n" );
+    int searchIndex = 0;
+
+    std::string dottedOutput;
+
+    for( int codeIndex = 0; codeIndex < codeToFind.size(); codeIndex++ )
+    {
+        SpvOp op = codeToFind[ codeIndex ].op;
+
+        printf( "%s ... ", codeToFind[ codeIndex ].name );
+        int originalSearchIndex = searchIndex;
+        std::string out2;
+        while( true )
+        {
+            if( searchIndex >= validInstructions.size())
+            {
+
+                dottedOutput += " ?";
+
+                searchIndex = originalSearchIndex + 1;
+                printf( "NOT FOUND -> skipping to %d\n", searchIndex );
+                break;
+            }
+
+            if( op == validInstructions[ searchIndex ].op)
+            {
+                /*
+                SpirvToken f = {};
+                f.op = op;
+                f.index = searchIndex;
+                f.name = codeToFind[ codeIndex ].name;
+                found.push_back( f );
+                */
+
+                out2 += " ";
+                out2 += codeToFind[codeIndex].name;
+                dottedOutput += out2;
+
+                printf( "FOUND at %d\n", searchIndex );
+                searchIndex++;
+                break;
+            }
+            else
+            {
+                out2 += " -";
+                searchIndex++;
+            }
+        }
+    }
+
+    printf( "\n" );
+    printf( "visually: [-] is skipped [?] is for one not found\n");
+    printf( "%s\n", dottedOutput.c_str());
+}
+
 int main( int argc, char **argv )
 {
     char* filePath = "frag.spv";
@@ -450,22 +541,24 @@ int main( int argc, char **argv )
 
     find_all_places_where_instructions_are( r );
 
-    std::vector<int32_t> codeToFind;
-    codeToFind.push_back((int32_t) SpvOpCapability); //  "OpCapability" );
-    codeToFind.push_back((int32_t) SpvOpExtInstImport); //  "OpExtInstImport" );
-    codeToFind.push_back((int32_t) SpvOpCapability); //  "OpCapability");// Shader
-    codeToFind.push_back((int32_t) SpvOpExtInstImport); //  "OpExtInstImport");// "GLSL.std.450"
-    codeToFind.push_back((int32_t) SpvOpMemoryModel); //  "OpMemoryModel");// Logical GLSL450
-    codeToFind.push_back((int32_t) SpvOpEntryPoint); //  "OpEntryPoint");// Fragment %main "main" %outColor %fragColor
-    codeToFind.push_back((int32_t) SpvOpExecutionMode); //  "OpExecutionMode");// %main OriginUpperLeft
-    codeToFind.push_back((int32_t) SpvOpSource); //  "OpSource");// GLSL 450
-    codeToFind.push_back((int32_t) SpvOpSourceExtension); //  "OpSourceExtension");// "GL_GOOGLE_cpp_style_line_directive"
-    codeToFind.push_back((int32_t) SpvOpSourceExtension); //  "OpSourceExtension");// "GL_GOOGLE_include_directive"
-    codeToFind.push_back((int32_t) SpvOpName); //  "OpName");// %main "main"
-    codeToFind.push_back((int32_t) SpvOpName); //  "OpName");// %outColor "outColor"
-    codeToFind.push_back((int32_t) SpvOpName); //  "OpName");// %fragColor "fragColor"
-    codeToFind.push_back((int32_t) SpvOpDecorate); //  "OpDecorate");// %outColor Location 0
-    codeToFind.push_back((int32_t) SpvOpDecorate); //  "OpDecorate");// %fragColor Location 1
+    std::vector<SpirvToken> codeToFind;
+    add_spirv_token(&codeToFind, SpvOpCapability); //  "OpCapability" );
+    add_spirv_token(&codeToFind, SpvOpExtInstImport); //  "OpExtInstImport" );
+    add_spirv_token(&codeToFind, SpvOpCapability); //  "OpCapability");// Shader
+    add_spirv_token(&codeToFind, SpvOpExtInstImport); //  "OpExtInstImport");// "GLSL.std.450"
+    add_spirv_token(&codeToFind, SpvOpMemoryModel); //  "OpMemoryModel");// Logical GLSL450
+    add_spirv_token(&codeToFind, SpvOpEntryPoint); //  "OpEntryPoint");// Fragment %main "main" %outColor %fragColor
+    add_spirv_token(&codeToFind, SpvOpExecutionMode); //  "OpExecutionMode");// %main OriginUpperLeft
+    add_spirv_token(&codeToFind, SpvOpSource); //  "OpSource");// GLSL 450
+    add_spirv_token(&codeToFind, SpvOpSourceExtension); //  "OpSourceExtension");// "GL_GOOGLE_cpp_style_line_directive"
+    add_spirv_token(&codeToFind, SpvOpSourceExtension); //  "OpSourceExtension");// "GL_GOOGLE_include_directive"
+    add_spirv_token(&codeToFind, SpvOpName); //  "OpName");// %main "main"
+    add_spirv_token(&codeToFind, SpvOpName); //  "OpName");// %outColor "outColor"
+    add_spirv_token(&codeToFind, SpvOpName); //  "OpName");// %fragColor "fragColor"
+    add_spirv_token(&codeToFind, SpvOpDecorate); //  "OpDecorate");// %outColor Location 0
+    add_spirv_token(&codeToFind, SpvOpDecorate); //  "OpDecorate");// %fragColor Location 1
+
+
 
     std::vector<SpirvToken> foundCode;
 
@@ -475,6 +568,64 @@ int main( int argc, char **argv )
     std::vector<SpirvToken> validInstructions;
 
     find_valid_instructions( r, &validInstructions );
+
+    search_for_code_sequence_inside_another( codeToFind, validInstructions );
+
+    {
+        std::vector<SpirvToken> v;
+        add_spirv_token(&v, SpvOpTypeVoid); //        %void = OpTypeVoid
+        add_spirv_token(&v, SpvOpTypeFunction); //           %3 = OpTypeFunction %void
+        add_spirv_token(&v, SpvOpTypeFloat); //       %float = OpTypeFloat 32
+        add_spirv_token(&v, SpvOpTypeVector); //     %v4float = OpTypeVector %float 4
+        add_spirv_token(&v, SpvOpTypePointer); // %_ptr_Output_v4float = OpTypePointer Output %v4float
+        add_spirv_token(&v, SpvOpVariable); //    %outColor = OpVariable %_ptr_Output_v4float Output
+        add_spirv_token(&v, SpvOpTypePointer); // %_ptr_Input_v4float = OpTypePointer Input %v4float
+        add_spirv_token(&v, SpvOpVariable); //   %fragColor = OpVariable %_ptr_Input_v4float Input
+        add_spirv_token(&v, SpvOpTypeInt); //        %uint = OpTypeInt 32 0
+        add_spirv_token(&v, SpvOpConstant); //      %uint_0 = OpConstant %uint 0
+        add_spirv_token(&v, SpvOpTypePointer); // %_ptr_Input_float = OpTypePointer Input %float
+        add_spirv_token(&v, SpvOpConstant); //      %uint_1 = OpConstant %uint 1
+        add_spirv_token(&v, SpvOpConstant); //      %uint_2 = OpConstant %uint 2
+        add_spirv_token(&v, SpvOpConstant); //      %uint_3 = OpConstant %uint 3
+        add_spirv_token(&v, SpvOpFunction); //        %main = OpFunction %void None %3
+        add_spirv_token(&v, SpvOpLabel); //           %5 = OpLabel
+        add_spirv_token(&v, SpvOpAccessChain); //          %15 = OpAccessChain %_ptr_Input_float %fragColor %uint_0
+        add_spirv_token(&v, SpvOpLoad); //          %16 = OpLoad %float %15
+        add_spirv_token(&v, SpvOpAccessChain); //          %18 = OpAccessChain %_ptr_Input_float %fragColor %uint_1
+        add_spirv_token(&v, SpvOpLoad); //          %19 = OpLoad %float %18
+        add_spirv_token(&v, SpvOpAccessChain); //          %21 = OpAccessChain %_ptr_Input_float %fragColor %uint_2
+        add_spirv_token(&v, SpvOpLoad); //          %22 = OpLoad %float %21
+        add_spirv_token(&v, SpvOpAccessChain); //          %24 = OpAccessChain %_ptr_Input_float %fragColor %uint_3
+        add_spirv_token(&v, SpvOpLoad); //          %25 = OpLoad %float %24
+        add_spirv_token(&v, SpvOpCompositeConstruct); //          %26 = OpCompositeConstruct %v4float %16 %19 %22 %25
+        add_spirv_token(&v, SpvOpStore);// %outColor %26
+        add_spirv_token(&v, SpvOpReturn);//
+        add_spirv_token(&v, SpvOpFunctionEnd);//
+
+
+        search_for_code_sequence_inside_another( v, validInstructions );
+    }
+
+    printf( "\n\n" );
+    printf( "these weren't found in sequence ...\n" );
+    {
+        std::vector<SpirvToken> v;
+        add_spirv_token(&v, SpvOpLabel); //           %5 = OpLabel
+        add_spirv_token(&v, SpvOpAccessChain); //          %15 = OpAccessChain %_ptr_Input_float %fragColor %uint_0
+        add_spirv_token(&v, SpvOpLoad); //          %16 = OpLoad %float %15
+        add_spirv_token(&v, SpvOpAccessChain); //          %18 = OpAccessChain %_ptr_Input_float %fragColor %uint_1
+        add_spirv_token(&v, SpvOpLoad); //          %19 = OpLoad %float %18
+        add_spirv_token(&v, SpvOpAccessChain); //          %21 = OpAccessChain %_ptr_Input_float %fragColor %uint_2
+        add_spirv_token(&v, SpvOpLoad); //          %22 = OpLoad %float %21
+        add_spirv_token(&v, SpvOpAccessChain); //          %24 = OpAccessChain %_ptr_Input_float %fragColor %uint_3
+        add_spirv_token(&v, SpvOpLoad); //          %25 = OpLoad %float %24
+        add_spirv_token(&v, SpvOpCompositeConstruct); //          %26 = OpCompositeConstruct %v4float %16 %19 %22 %25
+        add_spirv_token(&v, SpvOpStore);// %outColor %26
+        add_spirv_token(&v, SpvOpReturn);//
+        add_spirv_token(&v, SpvOpFunctionEnd);//
+
+        search_for_code_sequence_inside_another( v, validInstructions );
+    }
 
     print_instructions_from_different_offsets( r );
 
