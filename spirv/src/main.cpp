@@ -195,12 +195,20 @@ struct EntryPoint {
 struct Variable {
     int id;
     char * name;
-    SpvOp type;
+    int typeId;
     SpvStorageClass storageClass;
-    SpvOp typeOfPointedTo;
+    int typeOfPointedTo; // id
+    //
+    bool isFunction;
     SpvOp funcReturnType;
     std::vector<SpvOp> funcArgTypes;
+    //
     bool isPointer;
+    //
+    bool isFloat;
+    int floatBitsWide;
+    //
+    char * typeName;
 };
 
 Variable * get_or_add_to_vector( std::vector<Variable> &vec, int id )
@@ -263,8 +271,8 @@ int main( int argc, char **argv )
 
             Variable * pointerVar = get_or_add_to_vector( variables, pointerId );
             Variable * resultVar = get_or_add_to_vector( variables, resultId );
-
-            printf( " - type %s\n", SpvOpToString( resultType ));
+            Variable * resultTypeVar = get_or_add_to_vector( variables, resultType );
+            printf( " - type %s\n", resultTypeVar->typeName );//SpvOpToString( resultType ));
             printf( " - pointer %s (%d) \n", pointerVar->name, pointerVar->id );
             printf( " - result %s (%d) \n", resultVar->name, resultVar->id );
             printf( " - operands: ");
@@ -278,7 +286,19 @@ int main( int argc, char **argv )
             printf( "\n" );
 
 
-            printf( " %%%d = %%%d // %s = %s\n", resultVar->id, pointerVar->id, resultVar->name, pointerVar->name );
+            printf( " %%%d = (%s) %%%d // %s = (%%%d) %s\n", resultVar->id, resultTypeVar->typeName, pointerVar->id, resultVar->name, resultTypeVar->id, pointerVar->name );
+        }
+        else if( op == SpvOpTypeFloat )
+        {
+            int resultId = reader_read32( &r );
+            int floatBitsWide = reader_read32( &r );
+
+            Variable * resultVar = get_or_add_to_vector( variables, resultId );
+
+            resultVar->floatBitsWide = floatBitsWide;
+            resultVar->isFloat = true;
+            assert( resultVar->typeName == NULL );
+            resultVar->typeName = "float";
         }
         else if( op == SpvOpStore )
         {
@@ -301,12 +321,12 @@ int main( int argc, char **argv )
             Variable * baseVar = get_or_add_to_vector( variables, baseId );
             assert( resultTypeVar->isPointer );
             //assert( baseVar->isPointer );
-            printf( " - type %s %d, var %d %s, base %s %d \n", resultTypeVar->name, resultTypeVar->id, resultVar->id, resultVar->name, baseVar->name, baseId );
+            printf( " - type %s %d, var %d %s, base %s %d \n", resultTypeVar->typeName, resultTypeVar->id, resultVar->id, resultVar->name, baseVar->name, baseId );
 
             while( r.index < nextIndex )
             {
                 int offset = reader_read32( &r ); /// SOA ???
-                printf( " %%%d = %%%d [%d] // %s = %s [%d] \n", resultVar->id, baseVar->id, offset, resultVar->name, baseVar->name, offset );
+                printf( " %%%d = (%s) %%%d [%d] // %s = %s [%d] \n", resultVar->id, resultTypeVar->typeName, baseVar->id, offset, resultVar->name, baseVar->name, offset );
             }
         }
         else if( op == SpvOpCompositeConstruct )
@@ -314,7 +334,7 @@ int main( int argc, char **argv )
             int resultTypeId = (SpvOp) reader_read32( &r );
             int resultId = (SpvOp) reader_read32( &r );
             Variable * resultTypeVar = get_or_add_to_vector( variables, resultTypeId );
-            printf( " - resultType %d %s %s %s \n", resultTypeVar->id, resultTypeVar->name, SpvOpToString( resultTypeVar->type ), SpvOpToString( resultTypeVar->typeOfPointedTo ));
+            //printf( " - resultType %d %s %s %s \n", resultTypeVar->id, resultTypeVar->name, SpvOpToString( resultTypeVar->type ), SpvOpToString( resultTypeVar->typeOfPointedTo ));
             Variable * resultVar = get_or_add_to_vector( variables, resultId );
             printf( " - resultId %d '%s' \n", resultId, resultVar->name );
             printf( " - constituents: ");
@@ -343,7 +363,10 @@ int main( int argc, char **argv )
             Variable * var = get_or_add_to_vector( variables, id );
             var->funcArgTypes = funcArgTypes;
             var->funcReturnType = returnType;
+            var->isFunction = true;
 
+            assert( var->typeName == NULL );
+            var->typeName = "function";
 
             printf( " - id %d \n", id );
             printf( " - proc(" );
@@ -369,7 +392,7 @@ int main( int argc, char **argv )
         {
             int32_t id = reader_read32( &r );
             SpvStorageClass storageClass = (SpvStorageClass) reader_read32( &r );
-            SpvOp typeOfPointedTo = (SpvOp) reader_read32( &r );
+            int typeOfPointedTo = reader_read32( &r );
 
             Variable * var = get_or_add_to_vector( variables, id );
             assert( var->storageClass == 0 );
@@ -377,27 +400,31 @@ int main( int argc, char **argv )
             var->typeOfPointedTo = typeOfPointedTo;
             var->isPointer = true;
 
-            printf( " - %d, pointer, storage %s, points to %s \n", id, SpvStorageClassToString( storageClass ), SpvOpToString( typeOfPointedTo ) );
+            assert( var->typeName == NULL );
+            var->typeName = "pointer";
+
+            printf( " - %d, pointer, storage %s, points to %%%d \n", id, SpvStorageClassToString( storageClass ), typeOfPointedTo );
         }
         else if( op == SpvOpVariable )
         {
 
-            SpvOp resultType = (SpvOp) reader_read32( &r );
+            int resultTypeId = reader_read32( &r );
             int32_t id = reader_read32( &r );
             SpvStorageClass storageClass = (SpvStorageClass) reader_read32( &r );
 
             Variable * var = get_or_add_to_vector( variables, id );
 
-            var->type = resultType;
+            var->typeId = resultTypeId;
             var->storageClass = storageClass;
 
+            Variable * typeVar = get_or_add_to_vector( variables, var->typeId );
+
             printf( " - id = %d (%s) \n", id, var->name );
-            printf( " - type = %s \n", SpvOpToString( var->type ));
+            printf( " - type = %%%d \n", typeVar->id ); // TODO:
             printf( " - storage = %s \n", SpvStorageClassToString( var->storageClass ));
 
             // assert( resultType == SpvOpTypePointer ); ???
             assert( storageClass != SpvStorageClassGeneric );
-            assert( var->type == resultType );
             
 
             //printf(" - entry")
@@ -465,9 +492,21 @@ int main( int argc, char **argv )
         // layout(location = 0) out vec4 outColor;
         // layout(location = 1) in vec4 fragColor;
         printf( "- %s (%d)", v.name, v.id);
+        if( v.typeName)
+        {
+            printf( " type=%s", v.typeName );
+        }
+        else if( v.typeId ) 
+        {
+            Variable * t = get_or_add_to_vector( variables, v.typeId );
+            printf( " type=%s", t->typeName );
+        }
+        if( v.typeOfPointedTo )
+        {
+            Variable * t = get_or_add_to_vector( variables, v.typeOfPointedTo );
+            printf( " pointer to %s %%%d", t->typeName ? t->typeName : "" , t->id );
+        }
         if( v.storageClass) printf( " storage=%s", SpvStorageClassToString( v.storageClass ));
-        if( v.type ) printf( " type=%s", SpvOpToString( v.type ));
-        if( v.typeOfPointedTo ) printf( " typeOfPointedTo=%s", SpvOpToString( v.typeOfPointedTo ));
         if( v.funcArgTypes.size() > 0 )
         {
             printf( " proc(" );
