@@ -1,15 +1,21 @@
 #include "assert.h"
 #include <X11/X.h>
+#include <X11/Xlib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <memory.h>
 #include <string.h>
 //#include "File.hpp"
 #include <vector>
+#include <vulkan/vulkan_core.h>
 #include "File.hpp"
 
 #define VK_USE_PLATFORM_XLIB_KHR
 #include <vulkan/vulkan.h>
+
+// This one is missing for some reason
+// VK_DEFINE_NON_DISPATCHABLE_HANDLE(VkShaderEXT); // https://docs.vulkan.org/refpages/latest/refpages/source/VkShaderEXT.html
+// typedef void (VKAPI_PTR *PFN_vkCmdBindShadersEXT)(VkCommandBuffer commandBuffer, uint32_t stageCount, const VkShaderStageFlagBits* pStages, const VkShaderEXT* pShaders); // https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdBindShadersEXT.html
 
 #include <dlfcn.h> // dlsym, dlopen
 
@@ -23,8 +29,11 @@ struct OsSpecificStuff
 namespace VK
 {
 	struct MyVulkan {
-		char* layerNames[1] = { "VK_LAYER_KHRONOS_validation" };
-		int layerNamesCount = 1;
+		char* layerNames[1] = {
+// TODO:
+		// "VK_LAYER_KHRONOS_validation"
+		};
+		int layerNamesCount = 0;
 		std::vector<char*> instanceExtensionNames = std::vector<char*>();
 		std::vector<char*> deviceExtensionNames = std::vector<char*>();
 
@@ -110,6 +119,7 @@ namespace VK
 	vk_fun(vkCmdSetScissor);
 
 #pragma endregion
+    // PFN_vkCmdBindShadersEXT vkCmdBindShadersEXT;
 
 	void* _LoadProcedure(char* dllName, char* procName)
 	{
@@ -181,9 +191,32 @@ namespace VK
 		// assert(RegisterClassA(&windowClass));
 		// my->window = CreateWindowExA(0, windowClass.lpszClassName, "Vulkan Triangle!", WS_TILEDWINDOW | WS_VISIBLE, 0, 0, my->WIDTH, my->HEIGHT, NULL, NULL, NULL, NULL);
 		// assert(my->window);
+		Display * display = XOpenDisplay( nullptr );
+		assert(display);
+		int screen = DefaultScreen( display );
+		Window parent = RootWindow( display, screen );
+		assert(parent);
+		Window window = XCreateSimpleWindow(display, parent, 0, 0, my->WIDTH, my->HEIGHT, 10, 0, 0);
+		assert(window);
+		XSelectInput(
+           	display,
+           	window,
+           	KeyPressMask | // keypress
+           	ExposureMask | // resize event
+           	ResizeRedirectMask |
+           	0
+        );
+        XMapWindow( display, window ); // ShowWindow, otherwise just enters loop with one event
+
+
+
 		VkXlibSurfaceCreateInfoKHR createInfo32 = {};
-		createInfo32.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-		createInfo32.dpy = XOpenDisplay( nullptr );
+		createInfo32.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+		createInfo32.dpy = display;
+		createInfo32.window = window;
+
+		assert(createInfo32.dpy);
+		assert(createInfo32.window);
 		VkSurfaceKHR surface = NULL;
 		assert(vkCreateXlibSurfaceKHR(instance, &createInfo32, NULL, &surface) == VK_SUCCESS);
 		return surface;
@@ -345,19 +378,22 @@ namespace VK
 		// https://docs.vulkan.org/tutorial/latest/01_Overview.html
 
 
-		my->instanceExtensionNames.push_back("VK_KHR_win32_surface"); // required by vkCreateWin32SurfaceKHR()
-		my->instanceExtensionNames.push_back("VK_KHR_surface"); // required by VK_KHR_surface <- vkCreateWin32SurfaceKHR()
+		// my->instanceExtensionNames.push_back("VK_KHR_win32_surface"); // required by vkCreateWin32SurfaceKHR()
+		my->instanceExtensionNames.push_back("VK_KHR_xlib_surface"); // required by vkCreateXlibSurfaceKHR()
+		my->instanceExtensionNames.push_back("VK_KHR_surface"); // required by vkGetPhysicalDeviceSurfaceSupportKHR()
 		my->instanceExtensionNames.push_back("VK_EXT_debug_utils"); // required for debugging
+		// my->instanceExtensionNames.push_back("VK_EXT_shader_object"); // required for vkCmdBindShadersEXT
 		VkInstance instance = _CreateInstance(my);
 
 		VkSurfaceKHR surface = _CreateWindowSurface(my, instance); // Khronos: The window surface needs to be created right after the instance creation, because it can actually influence the physical device selection.
 
 		vkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
 		assert(vkCreateDebugUtilsMessengerEXT);
-#if 0
-		vkCmdBindShadersEXT = (PFN_vkCmdBindShadersEXT)vkGetInstanceProcAddr(instance, "vkCmdBindShadersEXT");
-		assert(vkCmdBindShadersEXT);
-#endif
+
+
+		// vkCmdBindShadersEXT = (PFN_vkCmdBindShadersEXT)vkGetInstanceProcAddr(instance, "vkCmdBindShadersEXT");
+		// assert(vkCmdBindShadersEXT);
+
 		_InstallDebugCallbacks(instance);
 
 		VkPhysicalDevice physicalDevice = _ChoosePhysicalDevice(instance);
@@ -910,7 +946,11 @@ namespace VK
 
 		VkPhysicalDeviceProperties deviceProperties = {};
 		vkGetPhysicalDeviceProperties(devices[0], &deviceProperties);
-		assert(deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU);
+		assert(
+		    deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU  // like in notebooks ..
+						||
+			deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
+		);
 
 		return devices[0];
 	}
@@ -926,7 +966,20 @@ namespace VK
 		queProps = (VkQueueFamilyProperties*)calloc(queCount, sizeof(queProps[0]));
 		assert(queProps);
 		vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queCount, queProps);
-		//
+
+		for(int i=0;i<queCount;i++)
+		{
+		    printf("[DEBUG] vkGetPhysicalDeviceQueueFamilyProperties [%d]",i);
+			printf(" count = %d",queProps[i].queueCount);
+            printf("%s",queProps[i].queueFlags & VK_QUEUE_GRAPHICS_BIT? " GRAPHIC":"-");
+            printf("%s",queProps[i].queueFlags & VK_QUEUE_COMPUTE_BIT? " COMPUTE":"-");
+            printf("%s",queProps[i].queueFlags & VK_QUEUE_TRANSFER_BIT? " TRANSFER":"-");
+            printf("%s",queProps[i].queueFlags & VK_QUEUE_SPARSE_BINDING_BIT? " SPARSE":"-");
+            printf("\n");
+		}
+
+		assert(*presentQueIndex < 0);
+
 		for (int i = 0; i < queCount; i++)
 		{
 			VkBool32 supported;
