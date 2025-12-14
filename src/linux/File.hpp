@@ -43,7 +43,6 @@ file_content ReadFile(char * fileName)
         result.bytes[result.count] = (uint8_t) c;
         result.count++;
     }
-    result.count++;
 
     result.isOK = true;
     return result;

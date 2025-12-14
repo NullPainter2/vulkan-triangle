@@ -29,11 +29,11 @@ struct OsSpecificStuff
 namespace VK
 {
 	struct MyVulkan {
-		char* layerNames[1] = {
-// TODO:
-		// "VK_LAYER_KHRONOS_validation"
+		char* layerNames[2] = {
+		    "VK_LAYER_KHRONOS_validation", // requires `sudo apt install vulkan-validationlayers-dev spirv-tools vulkan-sdk`
+			"VK_LAYER_MESA_device_select" // validations seems to suggest this one
 		};
-		int layerNamesCount = 0;
+		int layerNamesCount = 1;
 		std::vector<char*> instanceExtensionNames = std::vector<char*>();
 		std::vector<char*> deviceExtensionNames = std::vector<char*>();
 
@@ -1000,7 +1000,7 @@ namespace VK
 		assert((*presentQueIndex) >= 0);
 		assert(*presentQueIndex == *graphicQueIndex); // We support only this case atm
 
-		printf("PRESENT QUE = %d GRAPHIC QUE = %d\n", *presentQueIndex, *graphicQueIndex);
+		printf("\n[INFO] PRESENT QUE = %d GRAPHIC QUE = %d\n", *presentQueIndex, *graphicQueIndex);
 
 		VkDeviceQueueCreateInfo queCreateInfo = {};
 		float quePriorities[] = { 1.0 };
